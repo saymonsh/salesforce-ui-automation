@@ -63,13 +63,13 @@ def create_ui(window):
         is_disabled=False, opacity=1, on_hover=None, on_click=None,
         on_release=None, tag='run')
 
-    ui["Progressbar"] = pv.PvProgressBar(container=window, x=148, y=170, width=230,
+    ui["Progressbar"] = pv.PvProgressBar(container=window, x=170, y=170, width=160,
         height=80, min_value=0, max_value=100, value=0,
-        track_color=(192, 192, 192, 100), track_border_color=(0, 0, 0, 100), fill_color=(80, 160, 225, 1), track_corner_radius=7,
+        track_color=(222, 222, 222, 1), track_border_color=(255, 255, 255, 1), fill_color=(254, 254, 254, 1), track_corner_radius=7,
         opacity=1, idle_color=(255, 255, 255, 0), track_border_thickness=0, scale=1,
         track_height=12, is_circular=True, border_thickness=0, suffix='%',
-        font='assets/fonts/Poppins/Poppins.ttf', font_size=12, font_color=(0, 0, 0, 1), font_color_hover=None,
-        bold=False, italic=False, underline=False, strikeout=False,
+        font='assets/fonts/OpenSans/OpenSans.ttf', font_size=20, font_color=(255, 255, 255, 1), font_color_hover=None,
+        bold=True, italic=False, underline=False, strikeout=False,
         is_visible=False, is_disabled=False, on_hover=None, on_click=None,
         on_release=None, tag='Progressbar')
 
