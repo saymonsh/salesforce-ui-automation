@@ -16,3 +16,4 @@ env/
 selenium_session.txt
 *.log
 *.bat
+__pycache__/parameters.cpython-312.pyc
