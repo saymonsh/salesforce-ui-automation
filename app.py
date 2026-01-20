@@ -45,6 +45,10 @@ def attach_events(ui, app):
             print(parm.TYPE)
         if uploaded_file_path is None and parm.TYPE != 3:
             ui["status"].text = "❌ File not selected"
+        elif parm.TYPE in [1, 2]:
+            ui["run"].is_visible = False
+            ui["Progressbar"].is_visible = True
+            ui["Progressbar"].value = 0
         else:
            ui["run"].text = "running"
         # ui["run"].icon_path = r'assets/icons/icon_8.svg'
