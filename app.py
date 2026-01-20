@@ -9,7 +9,11 @@ from login import login_and_process
 from attendance_filling import attendance_filling_process
 import parameters as parm
 
+<<<<<<< HEAD
 uploaded_file_path = r"C:\Users\saymonsh\Downloads\run.xlsx"
+=======
+uploaded_file_path = r"C:\s\s.xlsx"
+>>>>>>> e52fb920cf64bd06b46b19cd9d851212a2823a7a
 
 def attach_events(ui, app):
     def on_setting_click(button=None):
@@ -49,8 +53,13 @@ def attach_events(ui, app):
            ui["run"].text = "running"
         # ui["run"].icon_path = r'assets/icons/icon_8.svg'
     ui["file_upload"].on_file_selected = on_browse_button_click
+<<<<<<< HEAD
     if uploaded_file_path == r"C:\Users\saymonsh\Downloads\run.xlsx":
         ui["file_upload"].text = "run.xlsx"
+=======
+    if uploaded_file_path == r"C:\s\s.xlsx":
+        ui["file_upload"].text = "s.xlsx"
+>>>>>>> e52fb920cf64bd06b46b19cd9d851212a2823a7a
     ui["run"].on_click = on_run_click
     ui["setting"].on_click = on_setting_click
     pass
