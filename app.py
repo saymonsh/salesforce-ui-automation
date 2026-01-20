@@ -9,11 +9,7 @@ from login import login_and_process
 from attendance_filling import attendance_filling_process
 import parameters as parm
 
-<<<<<<< HEAD
 uploaded_file_path = r"C:\Users\saymonsh\Downloads\run.xlsx"
-=======
-uploaded_file_path = r"C:\s\s.xlsx"
->>>>>>> e52fb920cf64bd06b46b19cd9d851212a2823a7a
 
 def attach_events(ui, app):
     def on_setting_click(button=None):
