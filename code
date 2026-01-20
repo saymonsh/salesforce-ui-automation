@@ -1,0 +1,194 @@
+import os
+import subprocess
+from time import sleep
+
+import pyotp
+from selenium import webdriver
+from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException, \
+ ElementNotInteractableException
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as ec
+from selenium.webdriver.support.wait import WebDriverWait
+
+import parameters as parm
+
+
+def attendance_filling_process():
+ os.environ.pop('HTTP_PROXY', None)
+ os.environ.pop('HTTPS_PROXY', None)
+ os.environ.pop('http_proxy', None)
+ os.environ.pop('https_proxy', None)
+ os.environ['NO_PROXY'] = '127.0.0.1,localhost'
+
+ chromedriver_path = r"C:\chromedriver\chromedriver.exe"
+ chromedriver_process = subprocess.Popen([chromedriver_path, "--port=9515"])
+ secret_key = parm.SECRET_KEY
+ totp = pyotp.TOTP(secret_key)
+ chrome_options = Options()
+ chrome_options.add_argument("--disable-notifications")
+ print("Chrome options set.")
+
+ chromedriver_url = "http://127.0.0.1:9515"  # Adjust port if needed
+ driver = webdriver.Remote(
+     command_executor=chromedriver_url,
+     options=chrome_options
+ )
+ print("Chrome launched.")
+ try:
+     driver.get(parm.URL)
+     wait_long = WebDriverWait(driver, 30)
+     wait_interaction = WebDriverWait(driver, 10)
+     wait_option = WebDriverWait(driver, 5)
+     wait_for_continue = WebDriverWait(driver, 3600)
+
+     driver.maximize_window()
+
+     print("Logging in...")
+     wait_long.until(ec.presence_of_element_located((By.XPATH, "//input[@id='username']"))).send_keys(parm.USER_NAME)
+     driver.find_element(By.XPATH, "//input[@id='password']").send_keys(parm.PASSWORD)
+     driver.find_element(By.XPATH, "//input[@id='Login']").click()
+     wait_long.until(ec.presence_of_element_located((By.XPATH, "//input[@id='tc']"))).send_keys(totp.now())
+     driver.find_element(By.XPATH, "//input[@id='save']").click()
+     print("Login successful.")
+
+     start_button_locator = (By.XPATH, "//button[contains(.,'דיווח נוכחות למשתתפים')]")
+     wait_long.until(ec.element_to_be_clickable(start_button_locator)).click()
+     print("Navigated to attendance page.")
+
+     # --- החלפת ה-input בכפתור JavaScript ---
+     print("Waiting for user to click 'Continue' button...")
+     # הגדרת קוד JavaScript ליצירת הכפתור
+     js_create_button = """
+                 // Create the button element
+                 var btn = document.createElement('button');
+                 btn.id = 'seleniumContinueButton';
+                 btn.textContent = 'המשך'; // Text for the button
+
+                 // Style the button
+                 btn.style.position = 'fixed';
+                 btn.style.top = '20px';
+                 btn.style.left = '50%'; // Changed from right to left
+                 btn.style.transform = 'translateX(-50%)'; // Center horizontally
+                 btn.style.padding = '12px 24px';
+                 btn.style.backgroundColor = '#4CAF50'; // Green background
+                 btn.style.color = 'white'; // White text
+                 btn.style.border = 'none';
+                 btn.style.borderRadius = '8px';
+                 btn.style.cursor = 'pointer';
+                 btn.style.zIndex = '9999'; // Ensure it's on top
+                 btn.style.fontSize = '16px';
+                 btn.style.fontWeight = 'bold'; // Make the text bold
+                 btn.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+
+                 // Add hover effect
+                 btn.onmouseover = function() { btn.style.backgroundColor = '#45a049'; };
+                 btn.onmouseout = function() { btn.style.backgroundColor = '#4CAF50'; };
+
+                 // Add click event listener
+                 btn.onclick = function() {
+                     // Set a flag or attribute to indicate click
+                     document.body.setAttribute('data-selenium-continue', 'true');
+                     // Optional: Remove the button after click
+                     // btn.remove();
+                 };
+
+                 // Append the button to the body
+                 document.body.appendChild(btn);
+
+                 // Initialize the flag attribute
+                 document.body.setAttribute('data-selenium-continue', 'false');
+             """
+     # הזרקת ה-JavaScript ליצירת הכפתור
+     driver.execute_script(js_create_button)
+
+     # המתנה עד שהמשתמש ילחץ על הכפתור (בודק את ה-attribute שהוגדר)
+     try:
+         wait_for_continue.until(
+             lambda driver: driver.execute_script(
+                 "return document.body.getAttribute('data-selenium-continue') === 'true';")
+         )
+         print("'Continue' button clicked.")
+         # הסרת הכפתור לאחר הלחיצה (אופציונלי)
+         driver.execute_script(
+             "var btn = document.getElementById('seleniumContinueButton'); if (btn) { btn.remove(); }")
+     except TimeoutException:
+         print("Timeout waiting for 'Continue' button click. Exiting.")
+         if 'driver' in locals() and driver:
+             driver.quit()
+         return
+     # --- סוף קטע החלפת ה-input ---
+     try:
+         first_status_button_in_table = (By.XPATH, "(//tr/td[3]//button[contains(@id, 'combobox-button-')])[1]")
+         wait_interaction.until(ec.presence_of_element_located(first_status_button_in_table))
+     except TimeoutException:
+         print("Error: Timeout while waiting for attendance table content after clicking start.")
+         if 'driver' in locals() and driver:
+             driver.quit()
+         return
+
+     counter = 1
+     while True:
+         print(f"--- Loop {counter}:")
+
+         button_locator = (By.XPATH,
+                           "(//tr[td[3][.//button[contains(@id, 'combobox-button-') and ./span[text()='בחר אפשרות']]]])[1]"
+                           "//td[3]"
+                           "//button[contains(@id, 'combobox-button-') and ./span[text()='בחר אפשרות']]")
+
+         potential_buttons = driver.find_elements(*button_locator)
+         if not potential_buttons:
+             print("No more attendance comboboxes found. Process likely complete.")
+             break
+
+         try:
+             button_element = potential_buttons[0]
+             button_id = button_element.get_attribute('id')
+             print(f"Found button: ID {button_id}")
+
+             try:
+                 driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", button_element)
+                 sleep(0.2)
+             except Exception as scroll_err:
+                 print(f"Warning: Scrolling error - {scroll_err}")
+
+             button_to_click = wait_interaction.until(ec.element_to_be_clickable(button_locator))
+             try:
+                 button_to_click.click()
+             except (ElementClickInterceptedException, ElementNotInteractableException):
+                 print("Button click intercepted/not interactable, trying JavaScript click...")
+                 driver.execute_script("arguments[0].click();", button_to_click)
+
+             dropdown_id = button_to_click.get_attribute('aria-controls')
+             if not dropdown_id:
+                 print(f"Error: Could not find aria-controls for button {button_id}. Skipping.")
+                 break
+
+             option_locator = (By.XPATH,
+                               f"//div[@id='{dropdown_id}']//lightning-base-combobox-item[@role='option' and @data-value='נוכח']")
+
+             present_option = wait_option.until(ec.element_to_be_clickable(option_locator))
+             try:
+                 driver.execute_script("arguments[0].click();", present_option)
+                 print("option clicked (JavaScript).")
+             except Exception as js_err:
+                 print(f"JavaScript click also failed: {js_err}")
+                 raise
+             sleep(0.1)
+             print("-" * 20)
+             counter += 1
+
+         except TimeoutException as e_inner:
+             print(f"TimeoutException within loop {counter} (maybe waiting for button/option clickable): {e_inner}. Stopping.")
+             break
+         except Exception as e_inner:
+             print(f"Unexpected error in loop {counter}: {type(e_inner).__name__} - {e_inner}. Stopping.")
+             break
+
+     print("Processing loop finished.")
+
+ except Exception as e_main:
+     print(f"An error occurred outside the main loop: {type(e_main).__name__} - {e_main}")
+
+ finally:
+     print("process completed.")
