@@ -25,6 +25,14 @@ def login_and_process(uploaded_file_path, ui):
 
     # שנה את שורת הקריאה לאקסל ל:
     excel_data = pd.read_excel(uploaded_file_path)
+
+    if len(excel_data) == 0:
+        print("Excel file is empty.")
+        ui["status"].text = "❌ File is empty"
+        ui["run"].is_visible = True
+        ui["Progressbar"].is_visible = False
+        return
+
     # יצירת מפתח חד־פעמי
     secret_key = parm.SECRET_KEY
     totp = pyotp.TOTP(secret_key)
@@ -40,9 +48,10 @@ def login_and_process(uploaded_file_path, ui):
         options=chrome_options
     )
     print("Chrome launched.")
-    driver.get("https://welfareministry.lightning.force.com/lightning/page/home")
-    driver.implicitly_wait(30)
-    driver.maximize_window()
+    try:
+        driver.get("https://welfareministry.lightning.force.com/lightning/page/home")
+        driver.implicitly_wait(30)
+        driver.maximize_window()
 
     username = driver.find_element(By.XPATH, "//input[@id='username']")
     username.send_keys(parm.USER_NAME)
@@ -61,7 +70,12 @@ def login_and_process(uploaded_file_path, ui):
         id_number = row['תעודות זהות']
         typer = row['סוג']
         date = row['תאריך']
-        print(f"{counter}/{len(excel_data)}")
+        
+        # חישוב אחוזים
+        percent = int((counter / len(excel_data)) * 100)
+        print(f"{counter}/{len(excel_data)} - {percent}%")
+        ui["Progressbar"].value = percent
+        
         if row['סוג'] == 1:  # יצירת הכנת תוכנית אישית + פעילות ודיווח שירות
             try:
                 perform_search(driver, id_number)
@@ -106,7 +120,23 @@ def login_and_process(uploaded_file_path, ui):
 
         counter += 1
 
-    driver.quit()
-    ui["run"].text = 'run'
-    chromedriver_process.terminate()
-    print("chrome driver has been detarminated")
+        counter += 1
+
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        ui["status"].text = "❌ Error occurred"
+
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except:
+                pass
+        
+        # שחזור כפתור הריצה וטיפול בסרגל ההתקדמות
+        ui["run"].is_visible = True
+        ui["Progressbar"].is_visible = False
+        
+        if 'chromedriver_process' in locals():
+            chromedriver_process.terminate()
+        print("chrome driver has been terminated")
