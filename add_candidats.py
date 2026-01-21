@@ -23,6 +23,16 @@ def add_candidats_process(uploaded_file_path, ui):
     sleep(2)
 
     excel_data = pd.read_excel(uploaded_file_path)
+
+    if len(excel_data) == 0:
+        print("Excel file is empty.")
+        ui["Text_uploadStatus"].text = "❌ File is empty"
+        ui["Button_run"].is_visible = True
+        ui["Progressbar"].is_visible = False
+        ui["Text_running"].is_visible = False
+        ui["Rectangle"].is_visible = False
+        return
+
     # יצירת מפתח חד־פעמי
     secret_key = parm.SECRET_KEY
     totp = pyotp.TOTP(secret_key)
@@ -37,44 +47,62 @@ def add_candidats_process(uploaded_file_path, ui):
         command_executor=chromedriver_url,
         options=chrome_options
     )
-    driver.get(parm.URL)
-    driver.implicitly_wait(30)
-    driver.maximize_window()
+    try:
+        driver.get(parm.URL)
+        driver.implicitly_wait(30)
+        driver.maximize_window()
 
-    username = driver.find_element(By.XPATH, "//input[@id='username']")
-    username.send_keys(parm.USER_NAME)
-    password = driver.find_element(By.XPATH, "//input[@id='password']")
-    password.send_keys(parm.PASSWORD)
-    driver.find_element(By.XPATH, "//input[@id='Login']").click()
-    tc = driver.find_element(By.XPATH, "//input[@id='tc']")
-    tc.send_keys(totp.now())
-    driver.find_element(By.XPATH, "//input[@id='save']").click()
-    driver.find_element(By.XPATH, "/html/body/div[4]/div[2]/div/div[2]/div/div[2]/div/div/div/div/runtime_platform_actions-executor-lwc-screen/c-find-p-es-to-service-schedule-action/lightning-quick-action-panel/div/slot/c-find-p-es-to-service-schedule-container/lightning-card/article/div[2]/slot/lightning-card/article/div[2]/slot/div/lightning-button[1]/button").click()
-
-
-    counter = 1
-    sleep(10)
-
-    print(f"Total rows in Excel: {len(excel_data)}")
-
-    for index, row in excel_data.iterrows():
-        id_number = row['תעודות זהות']
-        typer = row['סוג']
-        print(f"{counter}/{len(excel_data)}")
-        id_number = int(id_number)
-        pyperclip.copy(str(id_number))
-        search = driver.find_element(By.XPATH, "//input[@placeholder='תעודת זהות']")
-        search.click()
-        search.clear()
-        search.send_keys(Keys.CONTROL, 'v')
-        add_id = driver.find_element(By.XPATH,
-                                     f".//td[number()= '{id_number}']/preceding-sibling::td//input[@type = 'checkbox']")
-        driver.execute_script("arguments[0].click();", add_id)
-        clear = driver.find_element(By.XPATH, "//input[@placeholder='תעודת זהות']")
-        clear.clear()
-        counter += 1
-        ui["run"].text = 'run'
+        username = driver.find_element(By.XPATH, "//input[@id='username']")
+        username.send_keys(parm.USER_NAME)
+        password = driver.find_element(By.XPATH, "//input[@id='password']")
+        password.send_keys(parm.PASSWORD)
+        driver.find_element(By.XPATH, "//input[@id='Login']").click()
+        tc = driver.find_element(By.XPATH, "//input[@id='tc']")
+        tc.send_keys(totp.now())
+        driver.find_element(By.XPATH, "//input[@id='save']").click()
+        driver.find_element(By.XPATH, "/html/body/div[4]/div[2]/div/div[2]/div/div[2]/div/div/div/div/runtime_platform_actions-executor-lwc-screen/c-find-p-es-to-service-schedule-action/lightning-quick-action-panel/div/slot/c-find-p-es-to-service-schedule-container/lightning-card/article/div[2]/slot/lightning-card/article/div[2]/slot/div/lightning-button[1]/button").click()
 
 
-    chromedriver_process.terminate()
-    print("chrome driver has been detarminated")
+        counter = 1
+        sleep(10)
+
+        print(f"Total rows in Excel: {len(excel_data)}")
+
+        for index, row in excel_data.iterrows():
+            id_number = row['תעודות זהות']
+            typer = row['סוג']
+            
+            # חישוב אחוזים
+            percent = int((counter / len(excel_data)) * 100)
+            print(f"{counter}/{len(excel_data)} - {percent}%")
+            ui["Progressbar"].value = percent
+            
+            id_number = int(id_number)
+            id_number = int(id_number)
+            pyperclip.copy(str(id_number))
+            search = driver.find_element(By.XPATH, "//input[@placeholder='תעודת זהות']")
+            search.click()
+            search.clear()
+            search.send_keys(Keys.CONTROL, 'v')
+            add_id = driver.find_element(By.XPATH,
+                                         f".//td[number()= '{id_number}']/preceding-sibling::td//input[@type = 'checkbox']")
+            driver.execute_script("arguments[0].click();", add_id)
+            clear = driver.find_element(By.XPATH, "//input[@placeholder='תעודת זהות']")
+            clear.clear()
+            counter += 1
+            ui["Button_run"].text = 'run'
+
+
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        ui["Text_uploadStatus"].text = "❌ Error occurred"
+
+    finally:
+        ui["Button_run"].is_visible = True
+        ui["Progressbar"].is_visible = False
+        ui["Text_running"].is_visible = False
+        ui["Rectangle"].is_visible = False
+        
+        if 'chromedriver_process' in locals():
+            chromedriver_process.terminate()
+        print("chrome driver has been terminated")
