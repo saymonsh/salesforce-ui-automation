@@ -5,7 +5,7 @@ def create_window():
     window = pv.PvWindow(
         title="PyVisual Window",
         width=400,
-        height=300,
+        height=360,
         bg_color=(255, 255, 255, 1),
         icon=None,
         bg_image=None,
@@ -18,7 +18,7 @@ def create_window():
 def create_ui(window):
     ui = {}
     ui["PARAMETERS"] = pv.PvRectangle(container=window, x=0, y=0, width=400,
-        height=300, idle_color=(80, 160, 225, 1), border_color=(255, 255, 255, 1), border_thickness=2,
+        height=360, idle_color=(80, 160, 225, 1), border_color=(255, 255, 255, 1), border_thickness=2,
         corner_radius=10, border_style="solid", opacity=1, is_visible=True,
         tag='PARAMETERS')
 
@@ -78,7 +78,15 @@ def create_ui(window):
         icon_scale=1, icon_position='left', icon_spacing=10, icon_color='none',
         text_type='text', tag='TYPE')
 
-    ui["SAVE"] = pv.PvButton(container=window, x=140, y=235, width=120,
+    ui["UPLOADED_FILE_PATH"] = pv.PvTextInput(container=window, x=18, y=230, width=361,
+        height=40, background_color=(253, 255, 255, 1), is_visible=True, placeholder='UPLOADED_FILE_PATH',
+        text_alignment='left', default_text='', paddings=(10, 0, 3, 0), font='assets/fonts/Poppins/Poppins.ttf',
+        font_size=10, font_color=(2, 4, 6, 1), border_color=(0, 0, 0, 1), border_thickness=0,
+        border_style="solid", corner_radius=5, box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)', icon_path=None,
+        icon_scale=0.4, icon_position='right', icon_spacing=10, icon_color=(107, 159, 226, 1),
+        text_type='text', tag='UPLOADED_FILE_PATH')
+
+    ui["SAVE"] = pv.PvButton(container=window, x=140, y=290, width=120,
         height=50, text='SAVE', font='assets/fonts/Poppins/Poppins.ttf', font_size=16,
         font_color=(107, 159, 226, 1), font_color_hover=None, bold=True, italic=False,
         underline=False, strikethrough=False, idle_color=(255, 255, 255, 1), hover_color=None,
