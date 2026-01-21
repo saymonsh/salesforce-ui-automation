@@ -247,8 +247,8 @@ def _create_action_section(window):
     )
 
     ui["Text_running"] = pv.PvText(
-        container=window, x=211, y=185, width=85, height=25,
-        idle_color=COLOR_PURPLE_TRANSPARENT, text='running',
+        container=window, x=205, y=185, width=90, height=30,
+        idle_color=COLOR_PURPLE_TRANSPARENT, text='Running',
         text_alignment='center', paddings=(0, 0, 0, 0),
         font=FONT_POPPINS, font_size=20, font_color=COLOR_WHITE,
         bold=True, italic=False, underline=False, strikethrough=False,
