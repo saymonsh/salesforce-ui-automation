@@ -26,7 +26,7 @@ def add_candidats_process(uploaded_file_path, ui):
 
     if len(excel_data) == 0:
         print("Excel file is empty.")
-        ui["status"].text = "❌ File is empty"
+        ui["upload_status"].text = "❌ File is empty"
         ui["run"].is_visible = True
         ui["Progressbar"].is_visible = False
         return
@@ -93,7 +93,7 @@ def add_candidats_process(uploaded_file_path, ui):
 
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-        ui["status"].text = "❌ Error occurred"
+        ui["upload_status"].text = "❌ Error occurred"
 
     finally:
         ui["run"].is_visible = True
