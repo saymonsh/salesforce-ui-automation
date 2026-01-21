@@ -44,18 +44,18 @@ def attach_events(ui, app):
         else:
             print(parm.TYPE)
         if uploaded_file_path is None and parm.TYPE != 3:
-            ui["upload_status"].text = "❌ File not selected"
+            ui["Text_uploadStatus"].text = "❌ File not selected"
         elif parm.TYPE in [1, 2]:
-            ui["run"].is_visible = False
+            ui["Button_run"].is_visible = False
             ui["Progressbar"].is_visible = True
             ui["Text_running"].is_visible = True
             ui["Progressbar"].value = 0
 
-    ui["file_upload"].on_file_selected = on_browse_button_click
+    ui["FileDialog_fileUpload"].on_file_selected = on_browse_button_click
     if uploaded_file_path == r"C:\Users\saymonsh\Downloads\run.xlsx":
-        ui["file_upload"].text = "run.xlsx"
-    ui["run"].on_click = on_run_click
-    ui["setting"].on_click = on_setting_click
+        ui["FileDialog_fileUpload"].text = "run.xlsx"
+    ui["Button_run"].on_click = on_run_click
+    ui["Button_setting"].on_click = on_setting_click
     pass
 
     def attach_events_settings(ui, window, main_ui):
@@ -99,7 +99,7 @@ def attach_events(ui, app):
                 f.write(f'TYPE = {type_value}\n')
             window.close()
             load_parameters()
-            main_ui["upload_status"].text = "Saved"
+            main_ui["Text_uploadStatus"].text = "Saved"
         ui["SAVE"].on_click = on_save_click
         pass
 

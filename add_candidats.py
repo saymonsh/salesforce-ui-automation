@@ -26,8 +26,8 @@ def add_candidats_process(uploaded_file_path, ui):
 
     if len(excel_data) == 0:
         print("Excel file is empty.")
-        ui["upload_status"].text = "❌ File is empty"
-        ui["run"].is_visible = True
+        ui["Text_uploadStatus"].text = "❌ File is empty"
+        ui["Button_run"].is_visible = True
         ui["Progressbar"].is_visible = False
         ui["Text_running"].is_visible = False
         return
@@ -89,15 +89,15 @@ def add_candidats_process(uploaded_file_path, ui):
             clear = driver.find_element(By.XPATH, "//input[@placeholder='תעודת זהות']")
             clear.clear()
             counter += 1
-            ui["run"].text = 'run'
+            ui["Button_run"].text = 'run'
 
 
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-        ui["upload_status"].text = "❌ Error occurred"
+        ui["Text_uploadStatus"].text = "❌ Error occurred"
 
     finally:
-        ui["run"].is_visible = True
+        ui["Button_run"].is_visible = True
         ui["Progressbar"].is_visible = False
         ui["Text_running"].is_visible = False
         
