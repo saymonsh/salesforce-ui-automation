@@ -96,12 +96,6 @@ def add_candidats_process(uploaded_file_path, ui):
         ui["status"].text = "❌ Error occurred"
 
     finally:
-        if driver:
-            try:
-                driver.quit()
-            except:
-                pass
-        
         ui["run"].is_visible = True
         ui["Progressbar"].is_visible = False
         
