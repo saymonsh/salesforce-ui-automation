@@ -48,6 +48,7 @@ def attach_events(ui, app):
         elif parm.TYPE in [1, 2]:
             ui["run"].is_visible = False
             ui["Progressbar"].is_visible = True
+            ui["Text_running"].is_visible = True
             ui["Progressbar"].value = 0
 
     ui["file_upload"].on_file_selected = on_browse_button_click

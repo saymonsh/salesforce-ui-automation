@@ -86,6 +86,6 @@ def create_ui(window):
         text_alignment='center', paddings=(0, 0, 0, 0), font='assets/fonts/Poppins/Poppins.ttf', font_size=20,
         font_color=(255, 255, 255, 1), bold=True, italic=False, underline=False,
         strikethrough=False, opacity=1, border_color=None, corner_radius=0,
-        on_hover=None, on_click=None, on_release=None, tag=None)
+        is_visible=False, on_hover=None, on_click=None, on_release=None, tag=None)
 
     return ui
