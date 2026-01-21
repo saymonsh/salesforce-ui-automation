@@ -22,7 +22,7 @@ def create_ui(window):
         strikethrough=False, opacity=1, border_color=None, corner_radius=0,
         tag=None)
 
-    ui["setting"] = pv.PvButton(container=window, x=385, y=37, width=53,
+    ui["Button_setting"] = pv.PvButton(container=window, x=385, y=37, width=53,
         height=50, text='', font='assets/fonts/Poppins/Poppins.ttf', font_size=16,
         font_color=(255, 255, 255, 1), font_color_hover=None, bold=False, italic=False,
         underline=False, strikethrough=False, idle_color=(255, 255, 255, 1), hover_color=None,
@@ -33,7 +33,7 @@ def create_ui(window):
         is_disabled=False, opacity=1, on_hover=None, on_click=None,
         on_release=None, tag='setting')
 
-    ui["file_upload"] = pv.PvFileDialog(
+    ui["FileDialog_fileUpload"] = pv.PvFileDialog(
         container=window,
         x=170, y=257, width=160, height=50, text="upload", font_size=16, files_filter="Excel files (*.xlsx *.xls)",
         dialog_mode="open", on_file_selected=lambda file_path: print("Selected file:", file_path), enable_drag_drop=True,
@@ -52,7 +52,7 @@ def create_ui(window):
         strikethrough=False, opacity=1, border_color=None, corner_radius=0,
         tag=None)
 
-    ui["run"] = pv.PvButton(container=window, x=170, y=180, width=160,
+    ui["Button_run"] = pv.PvButton(container=window, x=170, y=180, width=160,
         height=50, text='run', font='assets/fonts/Poppins/Poppins.ttf', font_size=16,
         font_color=(107, 159, 226, 1), font_color_hover=None, bold=True, italic=False,
         underline=False, strikethrough=False, idle_color=(255, 251, 251, 1), hover_color=None,
@@ -63,7 +63,7 @@ def create_ui(window):
         is_disabled=False, opacity=1, on_hover=None, on_click=None,
         on_release=None, tag='run')
 
-    ui["Progressbar"] = pv.PvProgressBar(container=window, x=170, y=205, width=160,
+    ui["Progressbar"] = pv.PvProgressBar(container=window, x=170, y=215, width=160,
         height=25, min_value=0, max_value=100, value=0,
         track_color=(80, 160, 225, 1), track_border_color=(255, 255, 255, 1), fill_color=(255, 255, 255, 1),
         track_corner_radius=4,
@@ -74,14 +74,14 @@ def create_ui(window):
         is_visible=False, is_disabled=False, on_hover=None, on_click=None,
         on_release=None, tag='Progressbar')
 
-    ui["upload_status"] = pv.PvText(container=window, x=139, y=315, width=222,
+    ui["Text_uploadStatus"] = pv.PvText(container=window, x=139, y=315, width=222,
         height=34, bg_color=(124, 53, 163, 0), text="", is_visible=True,
         text_alignment='center', paddings=(0, 0, 0, 0), font='assets/fonts/Poppins/Poppins.ttf', font_size=16,
         font_color=(254, 254, 254, 1), bold=False, italic=False, underline=False,
         strikethrough=False, opacity=1, border_color=None, corner_radius=0,
         tag='status')
 
-    ui["Text_running"] = pv.PvText(container=window, x=211, y=180, width=78,
+    ui["Text_running"] = pv.PvText(container=window, x=211, y=185, width=85,
         height=25, idle_color=(124, 53, 163, 0), text='running',
         text_alignment='center', paddings=(0, 0, 0, 0), font='assets/fonts/Poppins/Poppins.ttf', font_size=20,
         font_color=(255, 255, 255, 1), bold=True, italic=False, underline=False,
