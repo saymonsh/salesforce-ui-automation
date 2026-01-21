@@ -212,6 +212,11 @@ def _create_upload_section(window):
 def _create_action_section(window):
     """Creates the Run button, the Progress Bar, and the 'running' status text."""
     ui = {}
+
+    ui["Rectangle"] = pv.PvRectangle(container=window, x=170, y=183, width=160,
+        height=56, idle_color=(255, 255, 250, 1), border_color=COLOR_WHITE, border_thickness=4,
+        corner_radius=10, border_style="solid", opacity=1, is_visible=False,
+        on_hover=None, on_click=None, on_release=None, tag=None)
     
     ui["Button_run"] = pv.PvButton(
         container=window, x=170, y=180, width=160, height=50,
@@ -236,7 +241,7 @@ def _create_action_section(window):
         min_value=0, max_value=100, value=0,
         track_color=COLOR_BLUE_BG, track_border_color=COLOR_WHITE,
         fill_color=COLOR_WHITE,
-        track_corner_radius=4, opacity=1,
+        track_corner_radius=7, opacity=1,
         idle_color=COLOR_WHITE_TRANSPARENT, track_border_thickness=4, scale=1,
         track_height=12, is_circular=False, border_thickness=0, suffix='',
         font=FONT_OPENSANS, font_size=15,
@@ -247,19 +252,16 @@ def _create_action_section(window):
     )
 
     ui["Text_running"] = pv.PvText(
-        container=window, x=205, y=185, width=90, height=30,
+        container=window, x=205, y=187.5, width=90, height=30,
         idle_color=COLOR_PURPLE_TRANSPARENT, text='Running',
         text_alignment='center', paddings=(0, 0, 0, 0),
-        font=FONT_POPPINS, font_size=20, font_color=COLOR_WHITE,
+        font=FONT_POPPINS, font_size=20, font_color=COLOR_BLUE_BG,
         bold=True, italic=False, underline=False, strikethrough=False,
         opacity=1, border_color=None, corner_radius=0,
         is_visible=False, on_hover=None, on_click=None, on_release=None, tag=None
     )
 
-    ui["Rectangle_0"] = pv.PvRectangle(container=window, x=170, y=184, width=162,
-        height=56, idle_color=(248, 244, 250, 1), border_color=(0, 0, 0, 1), border_thickness=2,
-        corner_radius=10, border_style="solid", opacity=1, is_visible=True,
-        on_hover=None, on_click=None, on_release=None, tag=None)
+
     
     return ui
 
