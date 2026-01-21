@@ -32,6 +32,7 @@ def login_and_process(uploaded_file_path, ui):
         ui["Button_run"].is_visible = True
         ui["Progressbar"].is_visible = False
         ui["Text_running"].is_visible = False
+        ui["Rectangle_0"].is_visible = False
         return
 
     # יצירת מפתח חד־פעמי
@@ -136,6 +137,7 @@ def login_and_process(uploaded_file_path, ui):
         ui["Button_run"].is_visible = True
         ui["Progressbar"].is_visible = False
         ui["Text_running"].is_visible = False
+        ui["Rectangle_0"].is_visible = False
         
         if 'chromedriver_process' in locals():
             chromedriver_process.terminate()
