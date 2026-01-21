@@ -49,9 +49,7 @@ def attach_events(ui, app):
             ui["run"].is_visible = False
             ui["Progressbar"].is_visible = True
             ui["Progressbar"].value = 0
-        else:
-           ui["run"].text = "running"
-        # ui["run"].icon_path = r'assets/icons/icon_8.svg'
+
     ui["file_upload"].on_file_selected = on_browse_button_click
     if uploaded_file_path == r"C:\Users\saymonsh\Downloads\run.xlsx":
         ui["file_upload"].text = "run.xlsx"

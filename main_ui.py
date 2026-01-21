@@ -15,7 +15,7 @@ def create_window():
 
 def create_ui(window):
     ui = {}
-    ui["Text_0"] = pv.PvText(container=window, x=148, y=40, width=204,
+    ui["Text_UserSetting"] = pv.PvText(container=window, x=148, y=40, width=204,
         height=45, bg_color=(255, 255, 255, 0), text='הגדרת משתמשים', is_visible=True,
         text_alignment='center', paddings=(0, 0, 0, 0), font='assets/fonts/OpenSans/OpenSans.ttf', font_size=26,
         font_color=(255, 255, 255, 1), bold=True, italic=False, underline=False,
@@ -45,7 +45,7 @@ def create_ui(window):
         box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.2)'
     )
 
-    ui["Text_3"] = pv.PvText(container=window, x=148, y=71, width=204,
+    ui["Text_Header"] = pv.PvText(container=window, x=148, y=71, width=204,
         height=45, bg_color=(255, 255, 255, 0), text='salesforce', is_visible=True,
         text_alignment='center', paddings=(0, 0, 0, 0), font='assets/fonts/Poppins/Poppins.ttf', font_size=26,
         font_color=(255, 255, 255, 1), bold=True, italic=False, underline=False,
