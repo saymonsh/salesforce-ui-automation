@@ -70,7 +70,8 @@ def attach_events(ui, app):
             "ACT_description": parm.ACT_description,
             "ACT_NU": parm.ACT_NU,
             "URL": parm.URL,
-            "TYPE": parm.TYPE
+            "TYPE": parm.TYPE,
+            "UPLOADED_FILE_PATH": parm.UPLOADED_FILE_PATH
         }
 
         ui["USER_NAME"].text = settings.get("USER_NAME", "")
@@ -80,6 +81,7 @@ def attach_events(ui, app):
         ui["ACT_NU"].text = settings.get("ACT_NU", "")
         ui["URL"].text = settings.get("URL", "")
         ui["TYPE"].text = str(settings.get("TYPE", ""))
+        ui["UPLOADED_FILE_PATH"].text = settings.get("UPLOADED_FILE_PATH", "")
 
         def on_save_click(button=None):
             user_name = ui["USER_NAME"].text
@@ -89,6 +91,7 @@ def attach_events(ui, app):
             act_nu = ui["ACT_NU"].text
             URL = ui["URL"].text
             type_value = ui["TYPE"].text
+            uploaded_file_path_value = ui["UPLOADED_FILE_PATH"].text
 
             import configparser
             config = configparser.ConfigParser(interpolation=None)
@@ -101,6 +104,10 @@ def attach_events(ui, app):
             config['Activity']['NUMBER'] = act_nu
             config['Salesforce']['URL'] = URL
             config['Salesforce']['TYPE'] = type_value
+            # Ensure Paths section exists
+            if 'Paths' not in config:
+                config['Paths'] = {}
+            config['Paths']['UPLOADED_FILE_PATH'] = uploaded_file_path_value
 
             with open('config.ini', 'w', encoding='utf-8') as configfile:
                 config.write(configfile)
