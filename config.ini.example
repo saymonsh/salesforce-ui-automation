@@ -1,0 +1,17 @@
+[Auth]
+USERNAME = your_username_here
+PASSWORD = your_password_here
+SECRET_KEY = your_secret_key_here
+
+[Salesforce]
+# URL to the Salesforce service schedule action
+URL = https://your-salesforce-instance.lightning.force.com/lightning/action/quick/...
+# Type of operation (e.g., 2)
+TYPE = 2
+
+[Activity]
+DESCRIPTION = Activity Description
+NUMBER = 30
+
+[Paths]
+UPLOADED_FILE_PATH = /path/to/your/file.xlsx
