@@ -81,4 +81,11 @@ def create_ui(window):
         strikethrough=False, opacity=1, border_color=None, corner_radius=0,
         tag='status')
 
+    ui["Text_running"] = pv.PvText(container=window, x=211, y=180, width=78,
+        height=25, idle_color=(124, 53, 163, 0), text='running', is_visible=True,
+        text_alignment='center', paddings=(0, 0, 0, 0), font='assets/fonts/Poppins/Poppins.ttf', font_size=20,
+        font_color=(255, 255, 255, 1), bold=True, italic=False, underline=False,
+        strikethrough=False, opacity=1, border_color=None, corner_radius=0,
+        on_hover=None, on_click=None, on_release=None, tag=None)
+
     return ui
