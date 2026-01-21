@@ -49,7 +49,7 @@ def attach_events(ui, app):
             ui["Button_run"].is_visible = False
             ui["Progressbar"].is_visible = True
             ui["Text_running"].is_visible = True
-            ui["Rectangle_0"].is_visible = True
+            ui["Rectangle"].is_visible = True
             ui["Progressbar"].value = 0
 
     ui["FileDialog_fileUpload"].on_file_selected = on_browse_button_click
