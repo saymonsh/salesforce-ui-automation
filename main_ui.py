@@ -256,10 +256,6 @@ def _create_action_section(window):
         is_visible=False, on_hover=None, on_click=None, on_release=None, tag=None
     )
     
-    ui["Rectangle_0"] = pv.PvRectangle(container=window, x=170, y=184, width=162,
-        height=56, idle_color=(248, 244, 250, 1), border_color=(0, 0, 0, 1), border_thickness=2,
-        corner_radius=10, border_style="solid", opacity=1, is_visible=True,
-        on_hover=None, on_click=None, on_release=None, tag=None)
     return ui
 
 def _create_status_section(window):
