@@ -44,7 +44,7 @@ def attach_events(ui, app):
         else:
             print(parm.TYPE)
         if uploaded_file_path is None and parm.TYPE != 3:
-            ui["status"].text = "❌ File not selected"
+            ui["upload_status"].text = "❌ File not selected"
         elif parm.TYPE in [1, 2]:
             ui["run"].is_visible = False
             ui["Progressbar"].is_visible = True
@@ -100,7 +100,7 @@ def attach_events(ui, app):
                 f.write(f'TYPE = {type_value}\n')
             window.close()
             load_parameters()
-            main_ui["status"].text = "Saved"
+            main_ui["upload_status"].text = "Saved"
         ui["SAVE"].on_click = on_save_click
         pass
 

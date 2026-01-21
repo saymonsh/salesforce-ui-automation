@@ -74,7 +74,7 @@ def create_ui(window):
         is_visible=False, is_disabled=False, on_hover=None, on_click=None,
         on_release=None, tag='Progressbar')
 
-    ui["status"] = pv.PvText(container=window, x=139, y=315, width=222,
+    ui["upload_status"] = pv.PvText(container=window, x=139, y=315, width=222,
         height=34, bg_color=(124, 53, 163, 0), text="", is_visible=True,
         text_alignment='center', paddings=(0, 0, 0, 0), font='assets/fonts/Poppins/Poppins.ttf', font_size=16,
         font_color=(254, 254, 254, 1), bold=False, italic=False, underline=False,
