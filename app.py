@@ -90,14 +90,20 @@ def attach_events(ui, app):
             URL = ui["URL"].text
             type_value = ui["TYPE"].text
 
-            with open("parameters.py", "w", encoding="utf-8") as f:
-                f.write(f'USER_NAME = "{user_name}"\n')
-                f.write(f'PASSWORD = "{password}"\n')
-                f.write(f'SECRET_KEY = "{secret_key}"\n')
-                f.write(f'ACT_description = "{act_description}"\n')
-                f.write(f'ACT_NU = "{act_nu}"\n')
-                f.write(f'URL = "{URL}"\n')
-                f.write(f'TYPE = {type_value}\n')
+            import configparser
+            config = configparser.ConfigParser(interpolation=None)
+            config.read('config.ini', encoding='utf-8')
+
+            config['Auth']['USERNAME'] = user_name
+            config['Auth']['PASSWORD'] = password
+            config['Auth']['SECRET_KEY'] = secret_key
+            config['Activity']['DESCRIPTION'] = act_description
+            config['Activity']['NUMBER'] = act_nu
+            config['Salesforce']['URL'] = URL
+            config['Salesforce']['TYPE'] = type_value
+
+            with open('config.ini', 'w', encoding='utf-8') as configfile:
+                config.write(configfile)
             window.close()
             load_parameters()
             main_ui["Text_uploadStatus"].text = "Saved"
