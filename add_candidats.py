@@ -29,6 +29,7 @@ def add_candidats_process(uploaded_file_path, ui):
         ui["upload_status"].text = "❌ File is empty"
         ui["run"].is_visible = True
         ui["Progressbar"].is_visible = False
+        ui["Text_running"].is_visible = False
         return
 
     # יצירת מפתח חד־פעמי
@@ -98,6 +99,7 @@ def add_candidats_process(uploaded_file_path, ui):
     finally:
         ui["run"].is_visible = True
         ui["Progressbar"].is_visible = False
+        ui["Text_running"].is_visible = False
         
         if 'chromedriver_process' in locals():
             chromedriver_process.terminate()
