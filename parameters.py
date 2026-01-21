@@ -11,7 +11,7 @@ if not os.path.exists(CONFIG_FILE):
     print("Please create it based on 'config.ini.example'.")
     sys.exit(1)
 
-config = configparser.ConfigParser()
+config = configparser.ConfigParser(interpolation=None)
 config.read(CONFIG_FILE, encoding='utf-8')
 
 try:
