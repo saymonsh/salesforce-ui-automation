@@ -9,7 +9,7 @@ from login import login_and_process
 from attendance_filling import attendance_filling_process
 import parameters as parm
 
-uploaded_file_path = r"C:\Users\saymonsh\Downloads\run.xlsx"
+uploaded_file_path = parm.UPLOADED_FILE_PATH
 
 def attach_events(ui, app):
     def on_setting_click(button=None):
@@ -53,8 +53,9 @@ def attach_events(ui, app):
             ui["Progressbar"].value = 0
 
     ui["FileDialog_fileUpload"].on_file_selected = on_browse_button_click
-    if uploaded_file_path == r"C:\Users\saymonsh\Downloads\run.xlsx":
-        ui["FileDialog_fileUpload"].text = "run.xlsx"
+    if uploaded_file_path:
+        import os
+        ui["FileDialog_fileUpload"].text = os.path.basename(uploaded_file_path)
     ui["Button_run"].on_click = on_run_click
     ui["Button_setting"].on_click = on_setting_click
     pass
