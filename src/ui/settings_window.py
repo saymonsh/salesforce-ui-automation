@@ -92,7 +92,7 @@ def create_ui(window):
         underline=False, strikethrough=False, idle_color=(255, 255, 255, 1), hover_color=None,
         clicked_color=None, border_color=(100, 100, 100, 1), border_hover_color=None, border_thickness=0,
         corner_radius=19, border_style="solid", box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)', box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.2)',
-        icon_path=None, icon_position='left', icon_color=(107, 159, 226, 1), icon_color_hover=None, # Note: original had icon_8.svg which might not be in constants. Leaving as None or need to add to constants if vital. Original had 'assets/icons/icon_8.svg'
+        icon_path=C.ICON_SAVE, icon_position='left', icon_color=(107, 159, 226, 1), icon_color_hover=None,
         icon_spacing=14, icon_scale=1, paddings=(0, 0, 0, 0), is_visible=True,
         is_disabled=False, opacity=1, on_hover=None, on_click=None,
         on_release=None, tag='SAVE')

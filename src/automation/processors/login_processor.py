@@ -80,7 +80,7 @@ class LoginProcessor(BaseProcessor):
                     # Original code had exit(400) for type 1, but others just print.
                     # Preserving strict behavior:
                     if row['סוג'] == 1:
-                        exit(400) # Replicating original dangerous exit
+                        raise Exception("Critical Failure: Type 1 processing failed.")
 
                 counter += 1
 

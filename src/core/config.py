@@ -22,9 +22,7 @@ class Config:
             if os.path.exists("config.ini"):
                 self.config_file_path = os.path.abspath("config.ini")
             else:
-                print(f"Error: Configuration file '{self.config_file_path}' not found.")
-                print("Please create it based on 'config.ini.example'.")
-                sys.exit(1)
+                raise FileNotFoundError(f"Configuration file '{self.config_file_path}' not found. Please create it based on 'config.ini.example'.")
 
         self.parser = configparser.ConfigParser(interpolation=None)
         self.parser.read(self.config_file_path, encoding='utf-8')
@@ -43,11 +41,9 @@ class Config:
             self.UPLOADED_FILE_PATH = self.parser.get('Paths', 'UPLOADED_FILE_PATH', fallback='')
 
         except KeyError as e:
-            print(f"Error: Missing configuration key: {e}")
-            sys.exit(1)
+            raise KeyError(f"Missing configuration key: {e}")
         except Exception as e:
-            print(f"Error reading configuration: {e}")
-            sys.exit(1)
+             raise ValueError(f"Error reading configuration: {e}")
 
     def reload(self):
         """Reloads the configuration from the file."""

@@ -9,15 +9,25 @@ from src.ui.main_window import create_window, create_ui
 from src.ui.controller import Controller
 
 def main():
-    app = pv.PvApp()
-    window = create_window()
-    ui = create_ui(window)
-    
-    # Initialize Controller
-    controller = Controller(app, window, ui)
-    
-    window.show()
-    app.run()
+    try:
+        app = pv.PvApp()
+        window = create_window()
+        ui = create_ui(window)
+        
+        # Initialize Controller
+        controller = Controller(app, window, ui)
+        
+        window.show()
+        app.run()
+    except (FileNotFoundError, KeyError, ValueError) as e:
+        # Minimal dependency way to show error on Windows
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, f"Startup Error:\n{str(e)}", "Salesforce Automation Error", 0x10)
+        sys.exit(1)
+    except Exception as e:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, f"Unexpected Error:\n{str(e)}", "Salesforce Automation Error", 0x10)
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()
