@@ -1,5 +1,7 @@
-import threading
+# import threading # Removed
 import os
+from PySide6.QtCore import QThread, Slot
+from src.ui.worker import AutomationWorker
 from src.core.config import config_instance as parm
 from src.ui.settings_window import create_ui as s_ui, create_window as s_window
 from src.automation.processors.login_processor import LoginProcessor
@@ -69,49 +71,43 @@ class Controller:
 
         ui["SAVE"].on_click = on_save_click
 
-    def update_ui_callback(self, status=None, progress=None, error=None):
-        # This runs on the worker thread, but pyvisual often handles threading or needs signals.
-        # Assuming direct property update is safe or safety is handled by pv/Qt.
-        # Ideally should use signals if PySide6.
-        # For this refactor, strictly mimicing original 'ui["key"].text = val' behavior.
-        
-        if status == "Done" or error:
-             self.main_ui["Button_run"].is_visible = True
-             self.main_ui["Progressbar"].is_visible = False
-             self.main_ui["Text_running"].is_visible = False
-             self.main_ui["Rectangle"].is_visible = False
+    @Slot(int)
+    def update_progress(self, value):
+        self.main_ui["Progressbar"].value = value
 
-        if status and status != "Done":
+    @Slot(str)
+    def update_status(self, status):
+        if status != "Done":
              self.main_ui["Text_uploadStatus"].text = status
-        
-        if progress is not None:
-             self.main_ui["Progressbar"].value = progress
+
+    @Slot(bool, str)
+    def on_worker_finished(self, success, message):
+        self.main_ui["Button_run"].is_visible = True
+        self.main_ui["Progressbar"].is_visible = False
+        self.main_ui["Text_running"].is_visible = False
+        self.main_ui["Rectangle"].is_visible = False
+
+        if not success:
+            self.main_ui["Text_uploadStatus"].text = f"Error: {message}"
+        else:
+             self.main_ui["Text_uploadStatus"].text = "Done"
+
+        # Cleanup
+        if hasattr(self, 'request_thread'):
+             self.request_thread.quit()
+             self.request_thread.wait()
+             self.request_thread.deleteLater()
+             self.request_thread = None
+        if hasattr(self, 'worker'):
+             self.worker.deleteLater()
+             self.worker = None
 
     def on_run_click(self, button=None):
-        processor = None
-        target_func = None
-
-        if parm.TYPE == 1:
-            print("Login in progress")
-            processor = LoginProcessor(self.update_ui_callback)
-            target_func = lambda: processor.process(self.uploaded_file_path)
-            
-        elif parm.TYPE == 2:
-            print("Adding candidates")
-            processor = CandidateProcessor(self.update_ui_callback)
-            target_func = lambda: processor.process(self.uploaded_file_path)
-            
-        elif parm.TYPE == 3:
-            print("test")
-            processor = AttendanceProcessor(self.update_ui_callback)
-            target_func = lambda: processor.process()
-        else:
-            print(parm.TYPE)
-
         if self.uploaded_file_path is None and parm.TYPE != 3:
             self.main_ui["Text_uploadStatus"].text = "❌ File not selected"
             return
         
+        # Prepare UI
         if parm.TYPE in [1, 2]:
             self.main_ui["Button_run"].is_visible = False
             self.main_ui["Progressbar"].is_visible = True
@@ -119,6 +115,32 @@ class Controller:
             self.main_ui["Rectangle"].is_visible = True
             self.main_ui["Progressbar"].value = 0
 
-        if target_func:
-            thread = threading.Thread(target=target_func)
-            thread.start()
+        # Create Worker and Thread
+        self.request_thread = QThread()
+        
+        if parm.TYPE == 1:
+            print("Login in progress")
+            self.worker = AutomationWorker(LoginProcessor, self.uploaded_file_path)
+        elif parm.TYPE == 2:
+            print("Adding candidates")
+            self.worker = AutomationWorker(CandidateProcessor, self.uploaded_file_path)
+        elif parm.TYPE == 3:
+             print("test")
+             self.worker = AutomationWorker(AttendanceProcessor)
+        else:
+             print(f"Unknown Type: {parm.TYPE}")
+             return
+
+        self.worker.moveToThread(self.request_thread)
+
+        # Connect Signals
+        self.request_thread.started.connect(self.worker.run)
+        self.worker.signals.finished.connect(self.on_worker_finished)
+        self.worker.signals.progress.connect(self.update_progress)
+        self.worker.signals.status.connect(self.update_status)
+        
+        # Ensure thread cleanup happens when finished signal is emitted
+        # We handle this in on_worker_finished, but can also connect finished to quit
+        # self.worker.signals.finished.connect(self.request_thread.quit) # Done manually in on_worker_finished to ensure order
+
+        self.request_thread.start()
