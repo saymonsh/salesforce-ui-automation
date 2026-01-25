@@ -13,6 +13,7 @@ FONT_POPPINS = os.path.join(ASSETS_DIR, 'fonts', 'Poppins', 'Poppins.ttf')
 ICON_SETTING = os.path.join(ASSETS_DIR, 'icons', 'icon_1.svg')
 ICON_UPLOAD = os.path.join(ASSETS_DIR, 'icons', 'icon_2.svg')
 ICON_RUN = os.path.join(ASSETS_DIR, 'icons', 'icon_4.svg')
+ICON_SAVE = os.path.join(ASSETS_DIR, 'icons', 'icon_8.svg')
 
 # Colors
 COLOR_WHITE             = (255, 255, 255, 1)
