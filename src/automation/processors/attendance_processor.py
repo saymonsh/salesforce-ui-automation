@@ -262,6 +262,6 @@ class AttendanceProcessor(BaseProcessor):
             print(f"Main error: {e}")
         finally:
             print("Finished.")
-            if self.ui_callback:
-                self.ui_callback(status="Done")
+            # if self.ui_callback:
+            #     self.ui_callback(status="Done")
             # Do NOT quit driver for AttendanceProcessor as per original logic logic ("The browser window will remain open")

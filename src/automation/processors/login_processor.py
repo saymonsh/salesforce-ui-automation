@@ -96,9 +96,9 @@ class LoginProcessor(BaseProcessor):
                     pass
             
             # Reset UI state (handled by controller via callback usually, but here just status)
-            if self.ui_callback:
-                 # Special signal to controller that we are done
-                 self.ui_callback(status="Done")
+            # if self.ui_callback:
+            #      # Special signal to controller that we are done
+            #      self.ui_callback(status="Done")
 
             if chromedriver_process:
                 chromedriver_process.terminate()
