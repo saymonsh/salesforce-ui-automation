@@ -1,6 +1,7 @@
 # import threading # Removed
 import os
 from PySide6.QtCore import QThread, Slot
+from PySide6.QtWidgets import QMessageBox
 from src.ui.worker import AutomationWorker
 from src.core.config import config_instance as parm
 from src.ui.settings_window import create_ui as s_ui, create_window as s_window
@@ -22,6 +23,15 @@ class Controller:
     def _init_ui_state(self):
          if self.uploaded_file_path:
             self.main_ui["FileDialog_fileUpload"].text = os.path.basename(self.uploaded_file_path)
+
+    def _show_alert(self, parent, title, message, icon):
+        msg_box = QMessageBox(parent)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(message)
+        msg_box.setIcon(icon)
+        # Detailed styling: White background for box, labels transparent (inherits white) or white. Text black.
+        msg_box.setStyleSheet("QMessageBox { background-color: white; color: black; } QLabel { color: black; background-color: white; } QPushButton { color: black; background-color: #f0f0f0; border: 1px solid #c0c0c0; border-radius: 4px; padding: 5px; min-width: 60px; } QPushButton:hover { background-color: #e0e0e0; }")
+        msg_box.exec()
 
     def _attach_events(self):
         self.main_ui["FileDialog_fileUpload"].on_file_selected = self.on_browse_button_click
@@ -63,7 +73,13 @@ class Controller:
             parm.update_config('Paths', 'UPLOADED_FILE_PATH', ui["UPLOADED_FILE_PATH"].text)
             
             window.close()
-            parm.reload() # Reload local copy
+            parm.update_config('Paths', 'UPLOADED_FILE_PATH', ui["UPLOADED_FILE_PATH"].text)
+            
+            try:
+                parm.reload() # Reload local copy
+            except (ValueError, KeyError) as e:
+                self._show_alert(window, "שגיאת הגדרות", f"שגיאה בשמירת ההגדרות:\n{str(e)}", QMessageBox.Critical)
+                return
             
             # Sync back to controller state if needed
             self.uploaded_file_path = parm.UPLOADED_FILE_PATH
@@ -108,6 +124,15 @@ class Controller:
             return
         
         # Prepare UI
+        # Prepare UI
+        
+        # Validation
+        errors = parm.validate()
+        if errors:
+            error_msg = "הפרמטרים הבאים חסרים או שגויים עבור סוג התהליך שנבחר:\n\n• " + "\n• ".join(errors)
+            self._show_alert(self.main_window, "הגדרות חסרות", error_msg, QMessageBox.Warning)
+            return
+
         if parm.TYPE in [1, 2]:
             self.main_ui["Button_run"].is_visible = False
             self.main_ui["Progressbar"].is_visible = True

@@ -33,7 +33,10 @@ class Config:
             self.SECRET_KEY = self.parser['Auth']['SECRET_KEY']
 
             self.URL = self.parser['Salesforce']['URL']
-            self.TYPE = self.parser.getint('Salesforce', 'TYPE')
+            try:
+                self.TYPE = self.parser.getint('Salesforce', 'TYPE')
+            except (ValueError, TypeError):
+                self.TYPE = None
 
             self.ACT_DESCRIPTION = self.parser['Activity']['DESCRIPTION']
             self.ACT_NU = self.parser['Activity']['NUMBER']
@@ -44,6 +47,37 @@ class Config:
             raise KeyError(f"Missing configuration key: {e}")
         except Exception as e:
              raise ValueError(f"Error reading configuration: {e}")
+
+    def validate(self):
+        """
+        Validates the current configuration based on the selected TYPE.
+        Returns a list of missing or invalid parameter names.
+        """
+        errors = []
+
+        # Global validations
+        if not self.USER_NAME: errors.append("שם משתמש (User Name)")
+        if not self.PASSWORD: errors.append("סיסמה (Password)")
+        if not self.SECRET_KEY: errors.append("מפתח סודי (Secret Key)")
+        if not self.URL: errors.append("כתובת מערכת (URL)")
+        
+        if self.TYPE is None:
+            errors.append("סוג תהליך לא תקין או חסר (Type)")
+            return errors # Cannot check specific logic if TYPE is unknown
+
+        # Context-Aware Validations
+        if self.TYPE == 1: # Login & Actions
+            if not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
+            if not self.ACT_NU: errors.append("מספר פעילות (Activity Number)")
+            if not self.ACT_DESCRIPTION: errors.append("תיאור פעילות (Description)")
+
+        elif self.TYPE == 2: # Candidates
+            if not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
+            
+        elif self.TYPE == 3: # Attendance
+            pass # No extra requirements beyond globals
+            
+        return errors
 
     def reload(self):
         """Reloads the configuration from the file."""
