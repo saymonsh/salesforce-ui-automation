@@ -49,6 +49,11 @@ class CandidateProcessor(BaseProcessor):
             print(f"Total rows in Excel: {len(excel_data)}")
 
             for index, row in excel_data.iterrows():
+                if self.is_stopped:
+                    print("Candidate Processor: Stopping execution...")
+                    self.update_ui(status="🛑 Execution Stopped")
+                    break
+
                 id_number = row['תעודות זהות']
                 typer = row['סוג'] # Unused in original logic but read
 

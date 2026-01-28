@@ -30,6 +30,12 @@ class AutomationWorker(QObject):
         self.args = args
         self.kwargs = kwargs
         self.signals = WorkerSignals()
+        self.processor = None
+
+    def stop(self):
+        """Helper to stop the processor."""
+        if self.processor:
+             self.processor.stop()
 
     def run(self):
         """
@@ -38,7 +44,8 @@ class AutomationWorker(QObject):
         try:
             # Initialize processor with signals
             # We pass the signals object so the processor can emit updates directly
-            processor = self.processor_class(signals=self.signals)
+            self.processor = self.processor_class(signals=self.signals)
+            processor = self.processor
             
             # Execute the process
             # Assuming process() is blocking and runs the automation
