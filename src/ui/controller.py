@@ -130,7 +130,7 @@ class Controller:
         errors = parm.validate()
         if errors:
             error_msg = "הפרמטרים הבאים חסרים או שגויים עבור סוג התהליך שנבחר:\n\n• " + "\n• ".join(errors)
-            self._show_alert(self.main_window, "הגדרות חסרות", error_msg, QMessageBox.Warning)
+            self._show_alert(self.main_window, "שגיאת הגדרות", error_msg, QMessageBox.Warning)
             return
 
         if parm.TYPE in [1, 2]:
@@ -151,7 +151,7 @@ class Controller:
             self.worker = AutomationWorker(CandidateProcessor, self.uploaded_file_path)
 
         else:
-             self._show_alert(self.main_window, "שגיאה", f"סוג תהליך לא חוקי (Unknown Type): {parm.TYPE}", QMessageBox.Critical)
+             self._show_alert(self.main_window, "שגיאה", f"{parm.TYPE} איננו תהליך חוקי", QMessageBox.Critical)
              return
 
         self.worker.moveToThread(self.request_thread)
