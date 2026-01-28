@@ -103,7 +103,7 @@ def _create_action_section(window):
         border_color=C.COLOR_BORDER_GRAY, border_hover_color=None, border_thickness=0,
         corner_radius=45, border_style="solid",
         box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)',
-        box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.2)',
+        box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.5)',
         icon_path=C.ICON_STOP,
         icon_position="right",
         icon_color=C.COLOR_BLUE_BG, icon_color_hover=None, # Ensure icon is white
