@@ -60,26 +60,43 @@ class LoginProcessor(BaseProcessor):
                 self.update_ui(progress=percent)
                 
                 try:
+                try:
+                    check = lambda: self.is_stopped
+                    
                     if row['סוג'] == 1:
-                        actions.perform_search(driver, id_number)
-                        actions.create_actions(driver, typer)
-                        actions.create_report(driver, date, typer)
+                        if self.is_stopped: break
+                        actions.perform_search(driver, id_number, check_stop=check)
+                        if self.is_stopped: break
+                        actions.create_actions(driver, typer, check_stop=check)
+                        if self.is_stopped: break
+                        actions.create_report(driver, date, typer, check_stop=check)
                     elif row['סוג'] == 2:
-                        actions.perform_search(driver, id_number)
-                        actions.create_actions(driver, typer)
+                        if self.is_stopped: break
+                        actions.perform_search(driver, id_number, check_stop=check)
+                        if self.is_stopped: break
+                        actions.create_actions(driver, typer, check_stop=check)
                     elif row['סוג'] == 3:
-                        actions.perform_search(driver, id_number)
-                        actions.create_report(driver, date, typer)
+                        if self.is_stopped: break
+                        actions.perform_search(driver, id_number, check_stop=check)
+                        if self.is_stopped: break
+                        actions.create_report(driver, date, typer, check_stop=check)
                     elif row['סוג'] == 4:
-                        actions.perform_search(driver, id_number)
-                        actions.create_actions(driver, typer)
-                        actions.create_report(driver, date, typer)
+                        if self.is_stopped: break
+                        actions.perform_search(driver, id_number, check_stop=check)
+                        if self.is_stopped: break
+                        actions.create_actions(driver, typer, check_stop=check)
+                        if self.is_stopped: break
+                        actions.create_report(driver, date, typer, check_stop=check)
                     elif row['סוג'] == 5:
-                        actions.perform_search(driver, id_number)
-                        actions.create_actions(driver, typer)
+                        if self.is_stopped: break
+                        actions.perform_search(driver, id_number, check_stop=check)
+                        if self.is_stopped: break
+                        actions.create_actions(driver, typer, check_stop=check)
                     elif row['סוג'] == 6:
-                        actions.perform_search(driver, id_number)
-                        actions.create_report(driver, date, typer)
+                        if self.is_stopped: break
+                        actions.perform_search(driver, id_number, check_stop=check)
+                        if self.is_stopped: break
+                        actions.create_report(driver, date, typer, check_stop=check)
                 except Exception as e:
                     print(f"תקלה במספר זהות: {id_number}, {str(e)}")
                     # Original code had exit(400) for type 1, but others just print.
@@ -108,3 +125,18 @@ class LoginProcessor(BaseProcessor):
             if chromedriver_process:
                 chromedriver_process.terminate()
             print("chrome driver has been terminated")
+            
+            if self.is_stopped:
+                self.update_ui(status="הפעולה הופסקה על ידי המשתמש")
+            # Else "Done" is emitted by worker, but we might want to override or handle here? 
+            # Worker emits "Done" if run() completes without exception. 
+            # If we break loop, fun returns.
+            # We need to ensure Worker knows. But Worker.run() calls self.signals.finished.emit(True, "Done").
+            # We can't easily change worker logic from here without return value.
+            # But the user asked for *UI Status* to be "Stopped". 
+            # If I emit status "Stopped" here, then Worker emits "Done", the UI might overwrite it.
+            # I should update Worker logic or BaseProcessor logic.
+            # BaseProcessor doesn't control flow.
+            # I'll handle this in Worker or return a value?
+            # Worker ignores return value.
+            # I will modify the Worker to check is_stopped later.

@@ -95,19 +95,19 @@ def _create_action_section(window):
     )
 
     ui["Button_stop"] = pv.PvButton(
-        container=window, x=170, y=180, width=160, height=50,
-        text='Stop', font=C.FONT_POPPINS, font_size=16,
+        container=window, x=125, y=215, width=35, height=25, # Aligned with progress bar (y=215, h=25)
+        text='', font=C.FONT_POPPINS, font_size=16,
         font_color=C.COLOR_WHITE, font_color_hover=None,
         bold=True, italic=False, underline=False, strikethrough=False,
-        idle_color=(231, 76, 60, 1), hover_color=(192, 57, 43, 1), clicked_color=None, # Red color
+        idle_color=C.COLOR_RED_STOP, hover_color=(192, 57, 43, 1), clicked_color=None,
         border_color=C.COLOR_BORDER_GRAY, border_hover_color=None, border_thickness=0,
-        corner_radius=25, border_style="solid",
+        corner_radius=5, border_style="solid",
         box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)',
         box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.2)',
-        # icon_path=C.ICON_RUN, # Reuse run icon or none? Using none for now as no specific stop icon exists
-        icon_position='right',
-        # icon_color=C.COLOR_WHITE, icon_color_hover=None,
-        icon_spacing=36, icon_scale=1.2, paddings=(0, 0, 0, 0),
+        icon_path=C.ICON_STOP,
+        icon_position='center',
+        icon_color=C.COLOR_WHITE, icon_color_hover=None, # Ensure icon is white
+        icon_spacing=0, icon_scale=0.8, paddings=(0, 0, 0, 0),
         is_visible=False, is_disabled=False, opacity=1,
         on_hover=None, on_click=None, on_release=None, tag='stop'
     )

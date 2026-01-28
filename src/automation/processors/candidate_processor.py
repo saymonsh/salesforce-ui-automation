@@ -62,15 +62,22 @@ class CandidateProcessor(BaseProcessor):
                 self.update_ui(progress=percent)
                 
                 id_number = int(id_number)
+                if self.is_stopped: break
+                
                 pyperclip.copy(str(id_number))
                 search = driver.find_element(By.XPATH, "//input[@placeholder='תעודת זהות']")
                 search.click()
+                if self.is_stopped: break
+                
                 search.clear()
                 search.send_keys(Keys.CONTROL, 'v')
+                if self.is_stopped: break
                 
                 add_id = driver.find_element(By.XPATH,
                                              f".//td[number()= '{id_number}']/preceding-sibling::td//input[@type = 'checkbox']")
                 driver.execute_script("arguments[0].click();", add_id)
+                
+                if self.is_stopped: break
                 clear = driver.find_element(By.XPATH, "//input[@placeholder='תעודת זהות']")
                 clear.clear()
                 counter += 1
