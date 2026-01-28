@@ -7,7 +7,7 @@ from src.core.config import config_instance as parm
 from src.ui.settings_window import create_ui as s_ui, create_window as s_window
 from src.automation.processors.login_processor import LoginProcessor
 from src.automation.processors.candidate_processor import CandidateProcessor
-from src.automation.processors.attendance_processor import AttendanceProcessor
+
 
 class Controller:
     def __init__(self, app, main_window, main_ui):
@@ -149,9 +149,7 @@ class Controller:
         elif parm.TYPE == 2:
             print("Adding candidates")
             self.worker = AutomationWorker(CandidateProcessor, self.uploaded_file_path)
-        elif parm.TYPE == 3:
-             print("test")
-             self.worker = AutomationWorker(AttendanceProcessor)
+
         else:
              print(f"Unknown Type: {parm.TYPE}")
              return

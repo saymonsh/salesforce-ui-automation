@@ -74,8 +74,7 @@ class Config:
         elif self.TYPE == 2: # Candidates
             if not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
             
-        elif self.TYPE == 3: # Attendance
-            pass # No extra requirements beyond globals
+
             
         return errors
 
