@@ -36,6 +36,7 @@ class Controller:
     def _attach_events(self):
         self.main_ui["FileDialog_fileUpload"].on_file_selected = self.on_browse_button_click
         self.main_ui["Button_run"].on_click = self.on_run_click
+        self.main_ui["Button_stop"].on_click = self.on_stop_click
         self.main_ui["Button_setting"].on_click = self.on_setting_click
 
     def on_browse_button_click(self, file_path):
@@ -99,6 +100,7 @@ class Controller:
     @Slot(bool, str)
     def on_worker_finished(self, success, message):
         self.main_ui["Button_run"].is_visible = True
+        self.main_ui["Button_stop"].is_visible = False
         self.main_ui["Progressbar"].is_visible = False
         self.main_ui["Text_running"].is_visible = False
         self.main_ui["Rectangle"].is_visible = False
@@ -118,6 +120,13 @@ class Controller:
              self.worker.deleteLater()
              self.worker = None
 
+    def on_stop_click(self, button=None):
+        if hasattr(self, 'worker') and self.worker:
+            self.main_ui["Text_uploadStatus"].text = "Stopping..."
+            self.worker.stop()
+            # Disable stop button to prevent multiple clicks
+            self.main_ui["Button_stop"].is_disabled = True
+    
     def on_run_click(self, button=None):
         if self.uploaded_file_path is None and parm.TYPE != 3:
             self.main_ui["Text_uploadStatus"].text = "❌ File not selected"
@@ -135,6 +144,8 @@ class Controller:
 
         if parm.TYPE in [1, 2]:
             self.main_ui["Button_run"].is_visible = False
+            self.main_ui["Button_stop"].is_visible = True
+            self.main_ui["Button_stop"].is_disabled = False
             self.main_ui["Progressbar"].is_visible = True
             self.main_ui["Text_running"].is_visible = True
             self.main_ui["Rectangle"].is_visible = True
