@@ -99,14 +99,14 @@ def _create_action_section(window):
         text='', font=C.FONT_POPPINS, font_size=16,
         font_color=C.COLOR_WHITE, font_color_hover=None,
         bold=True, italic=False, underline=False, strikethrough=False,
-        idle_color=C.COLOR_RED_STOP, hover_color=(0, 60, 121, 1), clicked_color=None,
+        idle_color=C.COLOR_WHITE, hover_color=None, clicked_color=None,
         border_color=C.COLOR_BORDER_GRAY, border_hover_color=None, border_thickness=0,
         corner_radius=45, border_style="solid",
         box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)',
         box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.2)',
         icon_path=C.ICON_STOP,
         icon_position="right",
-        icon_color=C.COLOR_WHITE, icon_color_hover=None, # Ensure icon is white
+        icon_color=C.COLOR_BLUE_BG, icon_color_hover=None, # Ensure icon is white
         icon_spacing=0, icon_scale=0.5, paddings=(0, 0, 0, 0),
         is_visible=False, is_disabled=False, opacity=1,
         on_hover=None, on_click=None, on_release=None, tag='stop'
