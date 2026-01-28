@@ -99,7 +99,7 @@ class Controller:
 
     @Slot(bool, str)
     def on_worker_finished(self, success, message):
-        self.main_ui["Button_run"].is_visible = True
+        self.main_ui["Button_run"].is_disabled = False # Re-enable
         self.main_ui["Button_stop"].is_visible = False
         self.main_ui["Progressbar"].is_visible = False
         self.main_ui["Text_running"].is_visible = False
@@ -108,7 +108,8 @@ class Controller:
         if not success:
             self.main_ui["Text_uploadStatus"].text = f"Error: {message}"
         else:
-             self.main_ui["Text_uploadStatus"].text = "Done"
+             self.main_ui["Text_uploadStatus"].text = message
+
 
         # Cleanup
         if hasattr(self, 'request_thread'):
@@ -143,7 +144,7 @@ class Controller:
             return
 
         if parm.TYPE in [1, 2]:
-            self.main_ui["Button_run"].is_visible = False
+            self.main_ui["Button_run"].is_disabled = True # Disable instead of hide
             self.main_ui["Button_stop"].is_visible = True
             self.main_ui["Button_stop"].is_disabled = False
             self.main_ui["Progressbar"].is_visible = True

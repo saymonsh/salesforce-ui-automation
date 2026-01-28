@@ -8,24 +8,34 @@ from src.core.config import config_instance as parm # Alias to match original us
 # Original logic from actions.py
 # STRICTLY NO LOGIC CHANGES ALLOWED FOR SELENIUM PARTS
 
-def perform_search(driver, id_number):
+def perform_search(driver, id_number, check_stop=None):
+    if check_stop and check_stop(): return
+
     driver.refresh()
+    if check_stop and check_stop(): return
     sleep(3)
+    if check_stop and check_stop(): return
 
     driver.implicitly_wait(30)
 
     sleep(5)
+    if check_stop and check_stop(): return
+    
     # Search Button
     search = driver.find_element(By.XPATH,
                                  "//button[@class='slds-button slds-button_neutral search-button slds-truncate']")
     search.click()
+
+    if check_stop and check_stop(): return
 
     # Input Search
     search_key = driver.find_element(By.XPATH, "//input[@placeholder='חיפוש...']")
     search_key.send_keys(f"{id_number}")
     search_key.send_keys(Keys.ENTER)
 
+    if check_stop and check_stop(): return
     sleep(3)
+    if check_stop and check_stop(): return
 
     # Wait for element and click
     pa = WebDriverWait(driver, 30).until(ec.element_to_be_clickable((By.XPATH,
@@ -36,17 +46,23 @@ def perform_search(driver, id_number):
     pa.click()
 
     sleep(3)
+    if check_stop and check_stop(): return
 
     pass
 
 
-def create_actions(driver, typer):
+def create_actions(driver, typer, check_stop=None):
+    if check_stop and check_stop(): return
     driver.refresh()
+    if check_stop and check_stop(): return
     sleep(5)
+    if check_stop and check_stop(): return
 
     create_action = WebDriverWait(driver, 30).until(
         ec.element_to_be_clickable((By.XPATH, "//button[contains(.,'יצירת פעילויות/תוכנית אישית')]")))
     create_action.click()
+
+    if check_stop and check_stop(): return
 
     if typer == 1 or typer == 2:
         select_action1 = driver.find_element(By.XPATH, ".//tr[8]/td/lightning-primitive-cell-checkbox/span/label/span")
@@ -59,24 +75,34 @@ def create_actions(driver, typer):
     driver.execute_script("arguments[0].scrollIntoView(true);", select_action2_element)
     select_action2_element.click()
 
+    if check_stop and check_stop(): return
+
     # Next
     click_next = driver.find_element(By.XPATH, "//button[contains(.,'הבא')]")
     click_next.click()
+
+    if check_stop and check_stop(): return
 
     save = driver.find_element(By.XPATH, "//button[text()='שמירה']")
     driver.execute_script("arguments[0].click();", save)
 
     sleep(3)
+    if check_stop and check_stop(): return
 
     pass
 
 
-def create_report(driver, date, typer):
+def create_report(driver, date, typer, check_stop=None):
+    if check_stop and check_stop(): return
     driver.refresh()
+    if check_stop and check_stop(): return
+
     report_button = driver.find_element(By.XPATH,
                                         "//li[@data-target-selection-name='sfdc:QuickAction.Pa_Program_Engagements__c"
                                         ".Pa_Create_Service_Delivery']//button[text()='דיווח שירות']")
     report_button.click()
+
+    if check_stop and check_stop(): return
 
     if typer != 6:
         action_report_element = driver.find_element(By.XPATH,
@@ -91,11 +117,15 @@ def create_report(driver, date, typer):
     next_to_report = driver.find_element(By.XPATH, "//button[contains(.,'הבא')]")
     next_to_report.click()
 
+    if check_stop and check_stop(): return
+
     action_date = driver.find_element(By.XPATH, "//input[@name='Action_Date_1']")
     action_date.send_keys(date)
 
     action_Status = driver.find_element(By.XPATH, "//select[@name='Action_Status_1']/option[2]")
     action_Status.click()
+
+    if check_stop and check_stop(): return
 
     # Using config value for ACT_DESCRIPTION
     activity_description = driver.find_element(By.XPATH,
@@ -107,10 +137,13 @@ def create_report(driver, date, typer):
 
     next_to_save_report = driver.find_element(By.XPATH, "//button[contains(.,'הבא')]")
     next_to_save_report.click()
+    
+    if check_stop and check_stop(): return
 
     save_report = driver.find_element(By.XPATH, "//button[contains(.,'סיים')]")
     save_report.click()
 
     sleep(3)
+    if check_stop and check_stop(): return
 
     pass
