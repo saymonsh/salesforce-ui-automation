@@ -60,7 +60,6 @@ class LoginProcessor(BaseProcessor):
                 self.update_ui(progress=percent)
                 
                 try:
-                try:
                     check = lambda: self.is_stopped
                     
                     if row['סוג'] == 1:
