@@ -151,7 +151,7 @@ class Controller:
             self.worker = AutomationWorker(CandidateProcessor, self.uploaded_file_path)
 
         else:
-             print(f"Unknown Type: {parm.TYPE}")
+             self._show_alert(self.main_window, "שגיאה", f"סוג תהליך לא חוקי (Unknown Type): {parm.TYPE}", QMessageBox.Critical)
              return
 
         self.worker.moveToThread(self.request_thread)
