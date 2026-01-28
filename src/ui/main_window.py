@@ -95,19 +95,19 @@ def _create_action_section(window):
     )
 
     ui["Button_stop"] = pv.PvButton(
-        container=window, x=125, y=215, width=35, height=25, # Aligned with progress bar (y=215, h=25)
+        container=window, x=125, y=198, width=25, height=25, # Aligned with progress bar (y=215, h=25)
         text='', font=C.FONT_POPPINS, font_size=16,
         font_color=C.COLOR_WHITE, font_color_hover=None,
         bold=True, italic=False, underline=False, strikethrough=False,
-        idle_color=C.COLOR_RED_STOP, hover_color=(192, 57, 43, 1), clicked_color=None,
+        idle_color=C.COLOR_RED_STOP, hover_color=(0, 60, 121, 1), clicked_color=None,
         border_color=C.COLOR_BORDER_GRAY, border_hover_color=None, border_thickness=0,
-        corner_radius=5, border_style="solid",
+        corner_radius=45, border_style="solid",
         box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)',
         box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.2)',
         icon_path=C.ICON_STOP,
-        icon_position='center',
+        icon_position="right",
         icon_color=C.COLOR_WHITE, icon_color_hover=None, # Ensure icon is white
-        icon_spacing=0, icon_scale=0.8, paddings=(0, 0, 0, 0),
+        icon_spacing=0, icon_scale=0.5, paddings=(0, 0, 0, 0),
         is_visible=False, is_disabled=False, opacity=1,
         on_hover=None, on_click=None, on_release=None, tag='stop'
     )
@@ -143,12 +143,12 @@ def _create_action_section(window):
 def _create_status_section(window):
     """Creates the bottom status text."""
     ui = {}
-    ui["Text_uploadStatus"] = pv.PvText(
+    ui["Text_mainStatus"] = pv.PvText(
         container=window, x=139, y=315, width=222, height=34,
         bg_color=C.COLOR_PURPLE_TRANSPARENT, text="", is_visible=True,
         text_alignment='center', paddings=(0, 0, 0, 0),
         font=C.FONT_POPPINS, font_size=16, font_color=(254, 254, 254, 1),
-        bold=False, italic=False, underline=False,
+        bold=True, italic=False, underline=False,
         strikethrough=False, opacity=1, border_color=None, corner_radius=0,
         tag='status'
     )

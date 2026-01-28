@@ -18,7 +18,7 @@ class CandidateProcessor(BaseProcessor):
 
             if len(excel_data) == 0:
                 print("Excel file is empty.")
-                self.update_ui(status="❌ File is empty", error=True)
+                self.update_ui(status="File is empty", error=True)
                 return
 
             chromedriver_process = DriverManager.launch_chromedriver()
@@ -85,7 +85,7 @@ class CandidateProcessor(BaseProcessor):
                 
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
-            self.update_ui(status="❌ Error occurred", error=True)
+            self.update_ui(status="Error occurred", error=True)
 
         finally:
             # if self.ui_callback:

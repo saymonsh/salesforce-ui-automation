@@ -8,7 +8,7 @@ class BaseProcessor(ABC):
     def stop(self):
         """Signals the processor to stop execution."""
         self.is_stopped = True
-        self.update_ui(status="🛑 Stops Execution...")
+        self.update_ui(status="Stops Execution...")
 
     @abstractmethod
     def process(self, *args, **kwargs):

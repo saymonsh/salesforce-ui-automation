@@ -17,7 +17,7 @@ class LoginProcessor(BaseProcessor):
 
             if len(excel_data) == 0:
                 print("Excel file is empty.")
-                self.update_ui(status="❌ File is empty", error=True)
+                self.update_ui(status="File is empty", error=True)
                 return
 
             # Launch Driver
@@ -107,7 +107,7 @@ class LoginProcessor(BaseProcessor):
 
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
-            self.update_ui(status="❌ Error occurred", error=True)
+            self.update_ui(status="Error occurred", error=True)
 
         finally:
             if driver:
@@ -126,7 +126,7 @@ class LoginProcessor(BaseProcessor):
             print("chrome driver has been terminated")
             
             if self.is_stopped:
-                self.update_ui(status="הפעולה הופסקה על ידי המשתמש")
+                self.update_ui(status="stopped")
             # Else "Done" is emitted by worker, but we might want to override or handle here? 
             # Worker emits "Done" if run() completes without exception. 
             # If we break loop, fun returns.
