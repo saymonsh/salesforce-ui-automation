@@ -51,7 +51,7 @@ class CandidateProcessor(BaseProcessor):
             for index, row in excel_data.iterrows():
                 if self.is_stopped:
                     print("Candidate Processor: Stopping execution...")
-                    self.update_ui(status="🛑 Execution Stopped")
+                    self.update_ui(status="Execution Stopped")
                     break
 
                 id_number = row['תעודות זהות']

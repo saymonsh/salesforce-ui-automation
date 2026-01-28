@@ -53,7 +53,7 @@ class AutomationWorker(QObject):
             
             if processor.is_stopped:
                 # "The action was stopped by the user"
-                self.signals.finished.emit(True, "stopped")
+                self.signals.finished.emit(True, "Execution Stopped")
             else:
                 self.signals.finished.emit(True, "Done")
 
