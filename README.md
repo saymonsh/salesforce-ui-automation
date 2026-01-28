@@ -33,7 +33,7 @@ salesforce-ui-automation/
 │       ├── driver_manager.py # ניהול הדרייבר של Chrome
 │       ├── actions.py     # פעולות בסיסיות (Selenium Actions)
 │       └── processors/    # לוגיקה עסקית לפי תהליך
-│           ├── login_processor.py      # תהליך ראשי (Type 1-6)
+│           ├── login_processor.py      # תהליך ראשי (Type 1-3)
 │           ├── candidate_processor.py  # הוספת מועמדים
 │           └── attendance_processor.py # מילוי נוכחות
 └── assets/                # קבצים סטטיים (גופנים, אייקונים)
