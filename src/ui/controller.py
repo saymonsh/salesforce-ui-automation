@@ -84,7 +84,7 @@ class Controller:
             
             # Sync back to controller state if needed
             self.uploaded_file_path = parm.UPLOADED_FILE_PATH
-            self.main_ui["Text_uploadStatus"].text = "Saved"
+            self.main_ui["Text_mainStatus"].text = "Saved"
 
         ui["SAVE"].on_click = on_save_click
 
@@ -95,20 +95,20 @@ class Controller:
     @Slot(str)
     def update_status(self, status):
         if status != "Done":
-             self.main_ui["Text_uploadStatus"].text = status
+             self.main_ui["Text_mainStatus"].text = status
 
     @Slot(bool, str)
     def on_worker_finished(self, success, message):
-        self.main_ui["Button_run"].is_disabled = False # Re-enable
+        self.main_ui["Button_run"].is_visible = True # Re-enable
         self.main_ui["Button_stop"].is_visible = False
         self.main_ui["Progressbar"].is_visible = False
         self.main_ui["Text_running"].is_visible = False
         self.main_ui["Rectangle"].is_visible = False
 
         if not success:
-            self.main_ui["Text_uploadStatus"].text = f"Error: {message}"
+            self.main_ui["Text_mainStatus"].text = f"Error: {message}"
         else:
-             self.main_ui["Text_uploadStatus"].text = message
+             self.main_ui["Text_mainStatus"].text = message
 
 
         # Cleanup
@@ -123,17 +123,16 @@ class Controller:
 
     def on_stop_click(self, button=None):
         if hasattr(self, 'worker') and self.worker:
-            self.main_ui["Text_uploadStatus"].text = "Stopping..."
+            self.main_ui["Text_mainStatus"].text = "Stopping..."
             self.worker.stop()
             # Disable stop button to prevent multiple clicks
             self.main_ui["Button_stop"].is_disabled = True
     
     def on_run_click(self, button=None):
         if self.uploaded_file_path is None and parm.TYPE != 3:
-            self.main_ui["Text_uploadStatus"].text = "❌ File not selected"
+            self.main_ui["Text_mainStatus"].text = "File not selected"
             return
         
-        # Prepare UI
         # Prepare UI
         
         # Validation
@@ -144,7 +143,7 @@ class Controller:
             return
 
         if parm.TYPE in [1, 2]:
-            self.main_ui["Button_run"].is_disabled = True # Disable instead of hide
+            self.main_ui["Button_run"].is_visible = False # Disable instead of hide
             self.main_ui["Button_stop"].is_visible = True
             self.main_ui["Button_stop"].is_disabled = False
             self.main_ui["Progressbar"].is_visible = True
