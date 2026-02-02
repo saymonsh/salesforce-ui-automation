@@ -1,4 +1,4 @@
-from time import sleep
+from src.core.utils import smart_sleep
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as ec
@@ -13,12 +13,12 @@ def perform_search(driver, id_number, check_stop=None):
 
     driver.refresh()
     if check_stop and check_stop(): return
-    sleep(3)
+    smart_sleep(3, check_stop)
     if check_stop and check_stop(): return
 
     driver.implicitly_wait(30)
 
-    sleep(5)
+    smart_sleep(5, check_stop)
     if check_stop and check_stop(): return
     
     # Search Button
@@ -34,7 +34,7 @@ def perform_search(driver, id_number, check_stop=None):
     search_key.send_keys(Keys.ENTER)
 
     if check_stop and check_stop(): return
-    sleep(3)
+    smart_sleep(3, check_stop)
     if check_stop and check_stop(): return
 
     # Wait for element and click
@@ -45,17 +45,17 @@ def perform_search(driver, id_number, check_stop=None):
                                                                      "1]/div/div/table/tbody/tr/th/span/a")))
     pa.click()
 
-    sleep(3)
+    smart_sleep(3, check_stop)
     if check_stop and check_stop(): return
 
-    pass
+
 
 
 def create_actions(driver, typer, check_stop=None):
     if check_stop and check_stop(): return
     driver.refresh()
     if check_stop and check_stop(): return
-    sleep(5)
+    smart_sleep(5, check_stop)
     if check_stop and check_stop(): return
 
     create_action = WebDriverWait(driver, 30).until(
@@ -86,10 +86,10 @@ def create_actions(driver, typer, check_stop=None):
     save = driver.find_element(By.XPATH, "//button[text()='שמירה']")
     driver.execute_script("arguments[0].click();", save)
 
-    sleep(3)
+    smart_sleep(3, check_stop)
     if check_stop and check_stop(): return
 
-    pass
+
 
 
 def create_report(driver, date, typer, check_stop=None):
@@ -143,7 +143,7 @@ def create_report(driver, date, typer, check_stop=None):
     save_report = driver.find_element(By.XPATH, "//button[contains(.,'סיים')]")
     save_report.click()
 
-    sleep(3)
+    smart_sleep(3, check_stop)
     if check_stop and check_stop(): return
 
-    pass
+
