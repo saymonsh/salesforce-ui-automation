@@ -95,7 +95,7 @@ def _create_action_section(window):
     )
 
     ui["Button_stop"] = pv.PvButton(
-        container=window, x=125, y=198, width=25, height=25, # Aligned with progress bar (y=215, h=25)
+        container=window, x=145, y=198, width=25, height=25, # Aligned with progress bar (y=215, h=25)
         text='', font=C.FONT_POPPINS, font_size=16,
         font_color=C.COLOR_WHITE, font_color_hover=None,
         bold=True, italic=False, underline=False, strikethrough=False,
