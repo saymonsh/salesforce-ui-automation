@@ -3,6 +3,12 @@ from abc import ABC, abstractmethod
 class BaseProcessor(ABC):
     def __init__(self, signals=None):
         self.signals = signals
+        self.is_stopped = False
+
+    def stop(self):
+        """Signals the processor to stop execution."""
+        self.is_stopped = True
+        self.update_ui(status="Stops Execution...")
 
     @abstractmethod
     def process(self, *args, **kwargs):

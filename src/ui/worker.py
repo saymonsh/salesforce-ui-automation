@@ -30,6 +30,12 @@ class AutomationWorker(QObject):
         self.args = args
         self.kwargs = kwargs
         self.signals = WorkerSignals()
+        self.processor = None
+
+    def stop(self):
+        """Helper to stop the processor."""
+        if self.processor:
+             self.processor.stop()
 
     def run(self):
         """
@@ -38,13 +44,18 @@ class AutomationWorker(QObject):
         try:
             # Initialize processor with signals
             # We pass the signals object so the processor can emit updates directly
-            processor = self.processor_class(signals=self.signals)
+            self.processor = self.processor_class(signals=self.signals)
+            processor = self.processor
             
             # Execute the process
             # Assuming process() is blocking and runs the automation
             processor.process(*self.args, **self.kwargs)
             
-            self.signals.finished.emit(True, "Done")
+            if processor.is_stopped:
+                # "The action was stopped by the user"
+                self.signals.finished.emit(True, "Execution Stopped")
+            else:
+                self.signals.finished.emit(True, "Done")
 
         except Exception as e:
             # In case of unhandled exception in the processor
