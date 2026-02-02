@@ -1,4 +1,3 @@
-# import threading # Removed
 import os
 from PySide6.QtCore import QThread, Slot
 from PySide6.QtWidgets import QMessageBox

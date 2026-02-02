@@ -36,7 +36,7 @@ class LoginProcessor(BaseProcessor):
         self.chromedriver_process = None
 
         try:
-             # Logic from login.py login_and_process
+
             excel_data = pd.read_excel(uploaded_file_path)
 
             if len(excel_data) == 0:
@@ -129,8 +129,6 @@ class LoginProcessor(BaseProcessor):
                         raise e
                         
                     print(f"תקלה במספר זהות: {id_number}, {str(e)}")
-                    # Original code had exit(400) for type 1, but others just print.
-                    # Preserving strict behavior:
                     if row['סוג'] == 1:
                         raise Exception("Critical Failure: Type 1 processing failed.")
 
