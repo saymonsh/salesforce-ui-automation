@@ -5,6 +5,8 @@ from src.automation.driver_manager import DriverManager
 from src.automation.processors.base_processor import BaseProcessor
 from src.automation import actions
 from src.core.config import config_instance as parm
+from src.core.exceptions import StopException
+from src.core.utils import verify_running
 
 class LoginProcessor(BaseProcessor):
     def __init__(self, signals=None):
@@ -42,51 +44,48 @@ class LoginProcessor(BaseProcessor):
                 self.update_ui(status="File is empty", error=True)
                 return
             
-            if self.is_stopped: return
+            verify_running(lambda: self.is_stopped)
 
             # Launch Driver
             self.chromedriver_process = DriverManager.launch_chromedriver()
             
-            if self.is_stopped: return
+            verify_running(lambda: self.is_stopped)
             self.driver = DriverManager.create_driver()
 
             # Login Logic
             secret_key = parm.SECRET_KEY
             totp = pyotp.TOTP(secret_key)
 
-            if self.is_stopped: return
+            verify_running(lambda: self.is_stopped)
             self.driver.get("https://welfareministry.lightning.force.com/lightning/page/home")
             
-            if self.is_stopped: return
+            verify_running(lambda: self.is_stopped)
             self.driver.implicitly_wait(30)
             self.driver.maximize_window()
 
-            if self.is_stopped: return
+            verify_running(lambda: self.is_stopped)
             username = self.driver.find_element(By.XPATH, "//input[@id='username']")
             username.send_keys(parm.USER_NAME)
             
-            if self.is_stopped: return
+            verify_running(lambda: self.is_stopped)
             password = self.driver.find_element(By.XPATH, "//input[@id='password']")
             password.send_keys(parm.PASSWORD)
             
-            if self.is_stopped: return
+            verify_running(lambda: self.is_stopped)
             self.driver.find_element(By.XPATH, "//input[@id='Login']").click()
             
-            if self.is_stopped: return
+            verify_running(lambda: self.is_stopped)
             tc = self.driver.find_element(By.XPATH, "//input[@id='tc']")
             tc.send_keys(totp.now())
             
-            if self.is_stopped: return
+            verify_running(lambda: self.is_stopped)
             self.driver.find_element(By.XPATH, "//input[@id='save']").click()
 
             counter = 1
             print(f"Total rows in Excel: {len(excel_data)}")
 
             for index, row in excel_data.iterrows():
-                if self.is_stopped:
-                    print("Example Processor: Stopping execution...")
-                    self.update_ui(status="Execution Stopped")
-                    break
+                verify_running(lambda: self.is_stopped)
 
                 id_number = row['תעודות זהות']
                 typer = row['סוג']
@@ -99,46 +98,35 @@ class LoginProcessor(BaseProcessor):
                 
                 try:
                     check = lambda: self.is_stopped
+                    # check is passed to actions, but verify_running is preferred if we call it here.
+                    # actions likely raise StopException now if check returns true inside them (via smart_sleep or explicit verify)
                     
                     if row['סוג'] == 1:
-                        if self.is_stopped: break
                         actions.perform_search(self.driver, id_number, check_stop=check)
-                        if self.is_stopped: break
                         actions.create_actions(self.driver, typer, check_stop=check)
-                        if self.is_stopped: break
                         actions.create_report(self.driver, date, typer, check_stop=check)
                     elif row['סוג'] == 2:
-                        if self.is_stopped: break
                         actions.perform_search(self.driver, id_number, check_stop=check)
-                        if self.is_stopped: break
                         actions.create_actions(self.driver, typer, check_stop=check)
                     elif row['סוג'] == 3:
-                        if self.is_stopped: break
                         actions.perform_search(self.driver, id_number, check_stop=check)
-                        if self.is_stopped: break
                         actions.create_report(self.driver, date, typer, check_stop=check)
                     elif row['סוג'] == 4:
-                        if self.is_stopped: break
                         actions.perform_search(self.driver, id_number, check_stop=check)
-                        if self.is_stopped: break
                         actions.create_actions(self.driver, typer, check_stop=check)
-                        if self.is_stopped: break
                         actions.create_report(self.driver, date, typer, check_stop=check)
                     elif row['סוג'] == 5:
-                        if self.is_stopped: break
                         actions.perform_search(self.driver, id_number, check_stop=check)
-                        if self.is_stopped: break
                         actions.create_actions(self.driver, typer, check_stop=check)
                     elif row['סוג'] == 6:
-                        if self.is_stopped: break
                         actions.perform_search(self.driver, id_number, check_stop=check)
-                        if self.is_stopped: break
                         actions.create_report(self.driver, date, typer, check_stop=check)
+                except StopException:
+                    raise # Re-raise to be caught by outer try-except
                 except Exception as e:
-                     # Check if stopped - if so, this exception might be due to driver close
-                    if self.is_stopped:
-                        print(f"Exception during stop (likely driver closed): {str(e)}")
-                        break 
+                    # Check if stopped - if so, this exception might be due to driver close
+                    if isinstance(e, StopException):
+                        raise e
                         
                     print(f"תקלה במספר זהות: {id_number}, {str(e)}")
                     # Original code had exit(400) for type 1, but others just print.
@@ -148,9 +136,13 @@ class LoginProcessor(BaseProcessor):
 
                 counter += 1
 
+        except StopException:
+            print("Process stopped by user (StopException caught).")
+            self.update_ui(status="Execution Stopped")
+
         except Exception as e:
             if self.is_stopped:
-                print("Process stopped by user.")
+                print("Process stopped by user (detected in general exception).")
                 self.update_ui(status="Execution Stopped")
             else:
                 print(f"An unexpected error occurred: {e}")
