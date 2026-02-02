@@ -1,7 +1,7 @@
 import pandas as pd
 import pyotp
 import pyperclip
-from time import sleep
+from src.core.utils import smart_sleep
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from src.automation.driver_manager import DriverManager
@@ -44,7 +44,7 @@ class CandidateProcessor(BaseProcessor):
             driver.find_element(By.XPATH, "/html/body/div[4]/div[2]/div/div[2]/div/div[2]/div/div/div/div/runtime_platform_actions-executor-lwc-screen/c-find-p-es-to-service-schedule-action/lightning-quick-action-panel/div/slot/c-find-p-es-to-service-schedule-container/lightning-card/article/div[2]/slot/lightning-card/article/div[2]/slot/div/lightning-button[1]/button").click()
 
             counter = 1
-            sleep(10)
+            smart_sleep(10, lambda: self.is_stopped)
 
             print(f"Total rows in Excel: {len(excel_data)}")
 
@@ -55,7 +55,6 @@ class CandidateProcessor(BaseProcessor):
                     break
 
                 id_number = row['תעודות זהות']
-                typer = row['סוג'] # Unused in original logic but read
 
                 percent = int((counter / len(excel_data)) * 100)
                 print(f"{counter}/{len(excel_data)} - {percent}%")
@@ -81,7 +80,6 @@ class CandidateProcessor(BaseProcessor):
                 clear = driver.find_element(By.XPATH, "//input[@placeholder='תעודת זהות']")
                 clear.clear()
                 counter += 1
-                # ui["Button_run"].text = 'run' # Original had this, probably to reset text if it changed?
                 
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
