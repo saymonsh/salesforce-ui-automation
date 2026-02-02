@@ -98,6 +98,14 @@ class CandidateProcessor(BaseProcessor):
         except StopException:
             print("Candidate Processor: Stopped by user.")
             self.update_ui(status="Execution Stopped")
+            if driver:
+                try:
+                    print("Forcing driver close due to stop...")
+                    driver.quit()
+                except Exception as e:
+                    print(f"Error during forced driver close: {e}")
+                finally:
+                    driver = None
 
         except Exception as e:
             if self.is_stopped:
