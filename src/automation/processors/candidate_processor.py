@@ -117,8 +117,7 @@ class CandidateProcessor(BaseProcessor):
                 self.update_ui(status="Error occurred", error=True)
 
         finally:
-            # if self.ui_callback:
-            #      self.ui_callback(status="Done")
+
 
             if chromedriver_process:
                 chromedriver_process.terminate()
