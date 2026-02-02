@@ -139,14 +139,14 @@ class LoginProcessor(BaseProcessor):
         except StopException:
             print("Process stopped by user (StopException caught).")
             self.update_ui(status="Execution Stopped")
-
-        except Exception as e:
-            if self.is_stopped:
-                print("Process stopped by user (detected in general exception).")
-                self.update_ui(status="Execution Stopped")
-            else:
-                print(f"An unexpected error occurred: {e}")
-                self.update_ui(status="Error occurred", error=True)
+            if self.driver:
+                try:
+                    print("Forcing driver close due to stop...")
+                    self.driver.quit()
+                except Exception as e:
+                    print(f"Error during forced driver close: {e}")
+                finally:
+                    self.driver = None
 
         finally:
             if self.driver:
