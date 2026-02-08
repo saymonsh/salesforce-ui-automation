@@ -19,7 +19,6 @@ ICON_STOP = os.path.join(ASSETS_DIR, 'icons', 'stop_icon.svg')
 # Colors
 COLOR_WHITE             = (255, 255, 255, 1)
 COLOR_WHITE_TRANSPARENT = (255, 255, 255, 0)
-COLOR_BLUE_PRIMARY      = (107, 159, 226, 1)
 COLOR_BLUE_BG           = (80, 160, 225, 1)
 COLOR_BORDER_GRAY       = (100, 100, 100, 1)
 COLOR_PURPLE_TRANSPARENT= (124, 53, 163, 0)
