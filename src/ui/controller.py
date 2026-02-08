@@ -1,5 +1,5 @@
 import os
-from PySide6.QtCore import QThread, Slot
+from PySide6.QtCore import QThread, Slot, Qt
 from PySide6.QtWidgets import QMessageBox
 from src.ui.worker import AutomationWorker
 from src.core.config import config_instance as parm
