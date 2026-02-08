@@ -18,3 +18,5 @@ selenium_session.txt
 *.bat
 __pycache__/parameters.cpython-312.pyc
 config.ini
+
+.gemini/
