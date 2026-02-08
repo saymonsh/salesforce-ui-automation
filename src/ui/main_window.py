@@ -37,6 +37,23 @@ def _create_header_section(window):
         is_visible=True, is_disabled=False, opacity=1,
         on_hover=None, on_click=None, on_release=None, tag='setting'
     )
+
+    ui["Button_help"] = pv.PvButton(
+        container=window, x=445, y=37, width=53, height=50,
+        text='?', font=C.FONT_POPPINS, font_size=24,
+        font_color=C.COLOR_BLUE_PRIMARY, font_color_hover=None,
+        bold=True, italic=False, underline=False, strikethrough=False,
+        idle_color=C.COLOR_WHITE, hover_color=None, clicked_color=None,
+        border_color=C.COLOR_BORDER_GRAY, border_hover_color=None, border_thickness=0,
+        corner_radius=25, border_style="solid",
+        box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)',
+        box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.2)',
+        icon_path=None, icon_position='center',
+        icon_color=None, icon_color_hover=None,
+        icon_spacing=0, icon_scale=1.0, paddings=(0, 0, 0, 0),
+        is_visible=True, is_disabled=False, opacity=1,
+        on_hover=None, on_click=None, on_release=None, tag='help'
+    )
     
     ui["Text_Header"] = pv.PvText(
         container=window, x=148, y=71, width=204, height=45,
