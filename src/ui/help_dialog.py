@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, 
-                               QTableWidgetItem, QPushButton, QHeaderView, QLabel)
+                               QTableWidgetItem, QPushButton, QHeaderView, QLabel, QAbstractItemView)
 from PySide6.QtCore import Qt
 
 class HelpDialog(QDialog):
@@ -34,6 +34,7 @@ class HelpDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["סוג", "פעולות", "משמעות עסקית"])
         self.table.setLayoutDirection(Qt.RightToLeft)
         self.table.setFocusPolicy(Qt.NoFocus)
+        self.table.setSelectionMode(QAbstractItemView.NoSelection)
         
         # Data
         data = [
