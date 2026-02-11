@@ -40,63 +40,9 @@ class Controller:
         self.main_ui["Button_help"].on_click = self.on_help_click
 
     def on_help_click(self, button=None):
-        title = "מדריך סוגי פעולות - Salesforce Automation"
-        content = """
-        <div dir='rtl' style='font-family: Arial, sans-serif;'>
-            <h2 style='color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;'>מדריך סוגי פעולות (Action Types)</h2>
-            <p>האוטומציה פועלת בהתאם לערך המספרי בעמודה <b>'סוג'</b> בקובץ ה-Excel:</p>
-            <table border='1' style='border-collapse: collapse; width: 100%; text-align: right;'>
-                <tr style='background-color: #f2f2f2;'>
-                    <th style='padding: 8px;'>סוג</th>
-                    <th style='padding: 8px;'>פעולות Salesforce</th>
-                    <th style='padding: 8px;'>משמעות עסקית</th>
-                </tr>
-                <tr>
-                    <td style='padding: 8px; text-align: center;'><b>1</b></td>
-                    <td style='padding: 8px;'>חיפוש + יצירת שירות 8 ו-ACT_NU + דיווח שירות</td>
-                    <td style='padding: 8px;'>הכנת תוכנית אישית מלאה וסגירת מטלה.</td>
-                </tr>
-                <tr>
-                    <td style='padding: 8px; text-align: center;'><b>2</b></td>
-                    <td style='padding: 8px;'>חיפוש + יצירת שירות 8 ו-ACT_NU (מתוכנן)</td>
-                    <td style='padding: 8px;'>תכנון כפול ללא דיווח ביצוע.</td>
-                </tr>
-                <tr>
-                    <td style='padding: 8px; text-align: center;'><b>3</b></td>
-                    <td style='padding: 8px;'>חיפוש + דיווח שירות על שורה 8</td>
-                    <td style='padding: 8px;'>עדכון ביצוע בלבד לשירות קיים.</td>
-                </tr>
-                <tr>
-                    <td style='padding: 8px; text-align: center;'><b>4</b></td>
-                    <td style='padding: 8px;'>חיפוש + יצירת ACT_NU + דיווח שירות 8</td>
-                    <td style='padding: 8px;'>שילוב יצירת שירות חדש ודיווח סיום.</td>
-                </tr>
-                <tr>
-                    <td style='padding: 8px; text-align: center;'><b>5</b></td>
-                    <td style='padding: 8px;'>חיפוש + יצירת ACT_NU (מתוכנן)</td>
-                    <td style='padding: 8px;'>הקמת שירות מוגדר בלבד.</td>
-                </tr>
-                <tr>
-                    <td style='padding: 8px; text-align: center;'><b>6</b></td>
-                    <td style='padding: 8px;'>חיפוש + דיווח שירות על ACT_NU</td>
-                    <td style='padding: 8px;'>סגירת שירות ספציפי (ACT_NU).</td>
-                </tr>
-            </table>
-            <div style='margin-top: 15px; padding: 10px; background-color: #e8f4fd; border-radius: 5px;'>
-                <b>שימו לב:</b><br>
-                • שורה 8 = 'הכנת תוכנית אישית'.<br>
-                • <b>ACT_NU</b> = מספר השורה המוגדר בהגדרות המשתמש.
-            </div>
-        </div>
-        """
-        
-        msg_box = QMessageBox(self.main_window)
-        msg_box.setWindowTitle(title)
-        msg_box.setTextFormat(Qt.RichText)
-        msg_box.setText(content)
-        msg_box.setIcon(QMessageBox.Information)
-        msg_box.setStyleSheet("QMessageBox { background-color: white; color: black; } QLabel { color: black; background-color: white; } QPushButton { color: black; background-color: #f0f0f0; border: 1px solid #c0c0c0; border-radius: 4px; padding: 5px; min-width: 60px; } QPushButton:hover { background-color: #e0e0e0; }")
-        msg_box.exec()
+        from src.ui.help_dialog import HelpDialog
+        dialog = HelpDialog(self.main_window)
+        dialog.exec()
 
     def on_browse_button_click(self, file_path):
         self.uploaded_file_path = file_path
