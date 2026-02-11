@@ -33,6 +33,7 @@ class HelpDialog(QDialog):
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["סוג", "פעולות", "משמעות עסקית"])
         self.table.setLayoutDirection(Qt.RightToLeft)
+        self.table.setFocusPolicy(Qt.NoFocus)
         
         # Data
         data = [
@@ -80,6 +81,15 @@ class HelpDialog(QDialog):
                 background-color: white;
                 alternate-background-color: #f9f9f9;
                 gridline-color: #d0d0d0;
+                selection-background-color: transparent; /* מונע צבע רקע כחול בבחירה */
+                selection-color: black; /* שומר על טקסט שחור בבחירה */
+            }
+            QTableWidget::item:hover {
+                background-color: transparent; /* מונע צבע רקע בריחוף עכבר */
+            }
+            QTableWidget::item:selected {
+                background-color: transparent; /* מבטיח שגם אם התא נבחר, הוא יישאר שקוף */
+                color: black;
             }
             QHeaderView::section {
                 background-color: #f0f0f0;
