@@ -7,6 +7,7 @@ class HelpDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("מדריך סוגי פעולות - Salesforce Automation")
         self.resize(700, 500)
+        self.setStyleSheet("background-color: white;")
         self.setLayoutDirection(Qt.RightToLeft)  
         
         # Main Layout
@@ -19,7 +20,7 @@ class HelpDialog(QDialog):
         font.setPointSize(14)
         font.setBold(True)
         title_label.setFont(font)
-        title_label.setStyleSheet("color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;")
+        title_label.setStyleSheet("color: #2c3e50; border-bottom: 2px solid #2C3E57; padding-bottom: 10px;")
         layout.addWidget(title_label)
         
         # Description
@@ -30,7 +31,7 @@ class HelpDialog(QDialog):
         # Table
         self.table = QTableWidget()
         self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["סוג", "פעולות Salesforce", "משמעות עסקית"])
+        self.table.setHorizontalHeaderLabels(["סוג", "פעולות", "משמעות עסקית"])
         self.table.setLayoutDirection(Qt.RightToLeft)
         
         # Data
@@ -96,7 +97,7 @@ class HelpDialog(QDialog):
         note_label = QLabel()
         note_label.setTextFormat(Qt.RichText)
         note_label.setText("<b>שימו לב:</b><br>• שורה 8 = 'הכנת תוכנית אישית'.<br>• <b>ACT_NU</b> = מספר השורה המוגדר בהגדרות המשתמש.")
-        note_label.setStyleSheet("QLabel { background-color: #e8f4fd; border: 1px solid #bce8f1; border-radius: 4px; padding: 10px; color: #31708f; }")
+        note_label.setStyleSheet("QLabel { background-color: white; border: 1px solid black; border-radius: 4px; padding: 10px; color: black; }")
         note_layout.addWidget(note_label)
         layout.addLayout(note_layout)
 
