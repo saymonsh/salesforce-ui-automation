@@ -37,7 +37,6 @@ salesforce-ui-automation/
 │       └── processors/    # לוגיקה עסקית לפי תהליך
 │           ├── login_processor.py      # תהליך ראשי 
 │           ├── candidate_processor.py  # הוספת מועמדים
-
 └── assets/                # קבצים סטטיים (גופנים, אייקונים)
 ```
 
