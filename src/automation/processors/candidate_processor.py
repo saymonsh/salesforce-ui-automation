@@ -1,64 +1,29 @@
-import pandas as pd
-import pyotp
 import pyperclip
 from src.core.utils import smart_sleep, verify_running
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from src.automation.driver_manager import DriverManager
 from src.automation.processors.base_processor import BaseProcessor
+from src.automation import selectors as S
 from src.core.config import config_instance as parm
 from src.core.exceptions import StopException
 
+
 class CandidateProcessor(BaseProcessor):
     def process(self, uploaded_file_path):
-        driver = None
-        chromedriver_process = None
-
         try:
-            excel_data = pd.read_excel(uploaded_file_path)
-
-            if len(excel_data) == 0:
-                print("Excel file is empty.")
-                self.update_ui(status="File is empty", error=True)
+            excel_data = self._read_excel(uploaded_file_path)
+            if excel_data is None:
                 return
 
             verify_running(lambda: self.is_stopped)
 
-            chromedriver_process = DriverManager.launch_chromedriver()
-            driver = DriverManager.create_driver()
+            # Launch Driver & Login
+            self._setup_driver()
+            self._login(parm.URL)
 
-            verify_running(lambda: self.is_stopped)
-
-            secret_key = parm.SECRET_KEY
-            totp = pyotp.TOTP(secret_key)
-            
-            verify_running(lambda: self.is_stopped)
-            driver.get(parm.URL)
-            verify_running(lambda: self.is_stopped)
-            driver.implicitly_wait(30)
-            driver.maximize_window()
-
-            verify_running(lambda: self.is_stopped)
-            username = driver.find_element(By.XPATH, "//input[@id='username']")
-            username.send_keys(parm.USER_NAME)
-            
-            verify_running(lambda: self.is_stopped)
-            password = driver.find_element(By.XPATH, "//input[@id='password']")
-            password.send_keys(parm.PASSWORD)
-            
-            verify_running(lambda: self.is_stopped)
-            driver.find_element(By.XPATH, "//input[@id='Login']").click()
-            
-            verify_running(lambda: self.is_stopped)
-            tc = driver.find_element(By.XPATH, "//input[@id='tc']")
-            tc.send_keys(totp.now())
-            
-            verify_running(lambda: self.is_stopped)
-            driver.find_element(By.XPATH, "//input[@id='save']").click()
-            
             verify_running(lambda: self.is_stopped)
             # Specific long path click from add_candidats.py
-            driver.find_element(By.XPATH, "/html/body/div[4]/div[2]/div/div[2]/div/div[2]/div/div/div/div/runtime_platform_actions-executor-lwc-screen/c-find-p-es-to-service-schedule-action/lightning-quick-action-panel/div/slot/c-find-p-es-to-service-schedule-container/lightning-card/article/div[2]/slot/lightning-card/article/div[2]/slot/div/lightning-button[1]/button").click()
+            self.driver.find_element(By.XPATH, S.CANDIDATE_INITIAL_BUTTON).click()
 
             counter = 1
             smart_sleep(10, lambda: self.is_stopped)
@@ -78,7 +43,7 @@ class CandidateProcessor(BaseProcessor):
                 verify_running(lambda: self.is_stopped)
                 
                 pyperclip.copy(str(id_number))
-                search = driver.find_element(By.XPATH, "//input[@placeholder='תעודת זהות']")
+                search = self.driver.find_element(By.XPATH, S.CANDIDATE_ID_INPUT)
                 search.click()
                 verify_running(lambda: self.is_stopped)
                 
@@ -86,26 +51,19 @@ class CandidateProcessor(BaseProcessor):
                 search.send_keys(Keys.CONTROL, 'v')
                 verify_running(lambda: self.is_stopped)
                 
-                add_id = driver.find_element(By.XPATH,
-                                             f".//td[number()= '{id_number}']/preceding-sibling::td//input[@type = 'checkbox']")
-                driver.execute_script("arguments[0].click();", add_id)
+                add_id = self.driver.find_element(By.XPATH,
+                                             S.CANDIDATE_CHECKBOX_TEMPLATE.format(id_number=id_number))
+                self.driver.execute_script("arguments[0].click();", add_id)
                 
                 verify_running(lambda: self.is_stopped)
-                clear = driver.find_element(By.XPATH, "//input[@placeholder='תעודת זהות']")
+                clear = self.driver.find_element(By.XPATH, S.CANDIDATE_ID_INPUT)
                 clear.clear()
                 counter += 1
                 
         except StopException:
             print("Candidate Processor: Stopped by user.")
             self.update_ui(status="Execution Stopped")
-            if driver:
-                try:
-                    print("Forcing driver close due to stop...")
-                    driver.quit()
-                except Exception as e:
-                    print(f"Error during forced driver close: {e}")
-                finally:
-                    driver = None
+            self._force_close_driver()
 
         except Exception as e:
             if self.is_stopped:
@@ -117,8 +75,4 @@ class CandidateProcessor(BaseProcessor):
                 self.update_ui(status="Error occurred", error=True)
 
         finally:
-
-
-            if chromedriver_process:
-                chromedriver_process.terminate()
-            print("chrome driver has been terminated")
+            self._cleanup_driver()
