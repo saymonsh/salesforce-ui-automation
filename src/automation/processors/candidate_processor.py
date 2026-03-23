@@ -75,4 +75,4 @@ class CandidateProcessor(BaseProcessor):
                 self.update_ui(status="Error occurred", error=True)
 
         finally
-        self.update_ui(status="Please click 'next' to continue")
+            self.update_ui(status="Please click 'next' to continue")
