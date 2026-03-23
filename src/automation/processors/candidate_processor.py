@@ -74,5 +74,5 @@ class CandidateProcessor(BaseProcessor):
                 print(f"An unexpected error occurred: {e}")
                 self.update_ui(status="Error occurred", error=True)
 
-        finally
+        finally:
             self.update_ui(status="Please click 'next' to continue")
