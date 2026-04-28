@@ -1,61 +1,52 @@
-from PySide6.QtWidgets import QMessageBox
 from src.core.config import config_instance as parm
-from src.ui.settings_window import create_ui as s_ui, create_window as s_window
+from src.ui.settings_window import SettingsFields, build_settings_dialog
 
 
 class SettingsController:
-    """Manages the settings window lifecycle, loading, and saving."""
+    """Manages the settings dialog lifecycle, loading, and saving."""
 
-    def __init__(self, main_ui, show_alert_fn):
-        self.main_ui = main_ui
-        self._show_alert = show_alert_fn
-        self.settings_window = None
+    def __init__(self, page, main_view):
+        self.page = page
+        self.main_view = main_view
 
-    def open_settings(self, parent_window):
-        """Opens or re-shows the settings window."""
-        if self.settings_window:
-            self.settings_window.show()
-        else:
-            self.settings_window = s_window()
-            settings_ui = s_ui(self.settings_window)
-            self._attach_events(settings_ui, self.settings_window)
-            self.settings_window.show()
+    def open_settings(self):
+        dialog, _fields = build_settings_dialog(
+            self.page,
+            initial_values={
+                "USER_NAME": parm.USER_NAME or "",
+                "PASSWORD": parm.PASSWORD or "",
+                "SECRET_KEY": parm.SECRET_KEY or "",
+                "ACT_DESCRIPTION": parm.ACT_DESCRIPTION or "",
+                "ACT_NU": parm.ACT_NU or "",
+                "URL": parm.URL or "",
+                "TYPE": str(parm.TYPE or ""),
+                "UPLOADED_FILE_PATH": parm.UPLOADED_FILE_PATH or "",
+            },
+            on_save=self._save_settings,
+        )
+        self.page.show_dialog(dialog)
+        self.page.update()
 
-    def _attach_events(self, ui, window):
-        """Loads current config values into settings UI and binds save."""
-        # Load values
-        ui["USER_NAME"].text = parm.USER_NAME or ""
-        ui["PASSWORD"].text = parm.PASSWORD or ""
-        ui["SECRET_KEY"].text = parm.SECRET_KEY or ""
-        ui["ACT_description"].text = parm.ACT_DESCRIPTION or ""
-        ui["ACT_NU"].text = parm.ACT_NU or ""
-        ui["URL"].text = parm.URL or ""
-        ui["TYPE"].text = str(parm.TYPE or "")
-        ui["UPLOADED_FILE_PATH"].text = parm.UPLOADED_FILE_PATH or ""
+    def _save_settings(self, fields: SettingsFields, dialog):
+        parm.update_config("Auth", "USERNAME", fields.user_name.value)
+        parm.update_config("Auth", "PASSWORD", fields.password.value)
+        parm.update_config("Auth", "SECRET_KEY", fields.secret_key.value)
+        parm.update_config("Activity", "DESCRIPTION", fields.act_description.value)
+        parm.update_config("Activity", "NUMBER", fields.act_nu.value)
+        parm.update_config("Salesforce", "URL", fields.url.value)
+        parm.update_config("Salesforce", "TYPE", fields.type_value.value)
+        parm.update_config("Paths", "UPLOADED_FILE_PATH", fields.uploaded_file_path.value)
 
-        def on_save_click(button=None):
-            parm.update_config('Auth', 'USERNAME', ui["USER_NAME"].text)
-            parm.update_config('Auth', 'PASSWORD', ui["PASSWORD"].text)
-            parm.update_config('Auth', 'SECRET_KEY', ui["SECRET_KEY"].text)
-            parm.update_config('Activity', 'DESCRIPTION', ui["ACT_description"].text)
-            parm.update_config('Activity', 'NUMBER', ui["ACT_NU"].text)
-            parm.update_config('Salesforce', 'URL', ui["URL"].text)
-            parm.update_config('Salesforce', 'TYPE', ui["TYPE"].text)
-            parm.update_config('Paths', 'UPLOADED_FILE_PATH', ui["UPLOADED_FILE_PATH"].text)
-            
-            window.close()
-            parm.update_config('Paths', 'UPLOADED_FILE_PATH', ui["UPLOADED_FILE_PATH"].text)
-            
-            try:
-                parm.reload() # Reload local copy
-            except (ValueError, KeyError) as e:
-                self._show_alert(window, "שגיאת הגדרות", f"שגיאה בשמירת ההגדרות:\n{str(e)}", QMessageBox.Critical)
-                return
-            
-            self.main_ui["Text_mainStatus"].text = "Saved"
+        try:
+            parm.reload()
+        except (ValueError, KeyError) as e:
+            self.main_view.show_alert("שגיאת הגדרות", f"שגיאה בשמירת ההגדרות:\n{str(e)}", "error")
+            return
 
-        ui["SAVE"].on_click = on_save_click
+        dialog.open = False
+        self.page.pop_dialog()
+        self.main_view.set_selected_file(parm.UPLOADED_FILE_PATH or None)
+        self.main_view.set_status("Saved")
 
     def get_uploaded_file_path(self):
-        """Returns the current uploaded file path from config."""
         return parm.UPLOADED_FILE_PATH

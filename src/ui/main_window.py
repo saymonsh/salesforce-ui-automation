@@ -1,205 +1,372 @@
-import pyvisual as pv
-from PySide6.QtCore import Qt
-from src.core import constants as C
-from src.ui.components.progress_bar import DynamicContrastProgressBar
+import os
+import threading
+from typing import Callable, Optional
 
-# ============================================================================
-# UI FACTORY HELPER FUNCTIONS
-# ============================================================================
+import flet as ft
 
-def _create_header_section(window):
-    """Creates the header text and settings button."""
-    ui = {}
-    
-    ui["Text_UserSetting"] = pv.PvText(
-        container=window, x=148, y=40, width=204, height=45,
-        bg_color=C.COLOR_WHITE_TRANSPARENT,
-        text='הגדרת משתמשים', is_visible=True, text_alignment='center',
-        paddings=(0, 0, 0, 0), font=C.FONT_OPENSANS, font_size=26,
-        font_color=C.COLOR_WHITE, bold=True, italic=False, underline=False,
-        strikethrough=False, opacity=1, border_color=None, corner_radius=0,
-        tag=None
-    )
+from src.ui.help_dialog import create_help_dialog
 
-    ui["Button_setting"] = pv.PvButton(
-        container=window, x=385, y=37, width=53, height=50,
-        text='', font=C.FONT_POPPINS, font_size=16,
-        font_color=C.COLOR_WHITE, font_color_hover=None,
-        bold=False, italic=False, underline=False, strikethrough=False,
-        idle_color=C.COLOR_WHITE, hover_color=None, clicked_color=None,
-        border_color=C.COLOR_BORDER_GRAY, border_hover_color=None, border_thickness=0,
-        corner_radius=25, border_style="solid",
-        box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)',
-        box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.2)',
-        icon_path=C.ICON_SETTING, icon_position='right',
-        icon_color=C.COLOR_BLUE_BG, icon_color_hover=None,
-        icon_spacing=0, icon_scale=1.3, paddings=(0, 0, 0, 0),
-        is_visible=True, is_disabled=False, opacity=1,
-        on_hover=None, on_click=None, on_release=None, tag='setting'
-    )
 
-    ui["Button_help"] = pv.PvButton(
-        container=window, x=35, y=35, width=30, height=27,
-        text="ⓘ", font=C.FONT_POPPINS, font_size=18,
-        font_color=C.COLOR_WHITE, font_color_hover=None,
-        bold=True, italic=False, underline=False, strikethrough=False,
-        idle_color=C.COLOR_BLUE_BG, hover_color=None, clicked_color=None,
-        border_color=C.COLOR_BLUE_BG, border_hover_color=None, border_thickness=0,
-        corner_radius=25, border_style="solid",
-        box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)',
-        box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.2)',
-        icon_path=None, icon_position='center',
-        icon_color=None, icon_color_hover=None,
-        icon_spacing=0, icon_scale=1.0, paddings=(0, 0, 0, 0),
-        is_visible=True, is_disabled=False, opacity=1,
-        on_hover=None, on_click=None, on_release=None, tag='help'
-    )
-    
-    ui["Text_Header"] = pv.PvText(
-        container=window, x=148, y=71, width=204, height=45,
-        bg_color=C.COLOR_WHITE_TRANSPARENT, text='salesforce', is_visible=True,
-        text_alignment='center', paddings=(0, 0, 0, 0),
-        font=C.FONT_POPPINS, font_size=26, font_color=C.COLOR_WHITE,
-        bold=True, italic=False, underline=False, strikethrough=False,
-        opacity=1, border_color=None, corner_radius=0, tag=None
-    )
-    
-    return ui
+class MainView:
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self._lock = threading.RLock()
+        self._build_page()
+        self._build_controls()
+        self._render()
 
-def _create_upload_section(window):
-    """Creates file upload dialog."""
-    ui = {}
-    ui["FileDialog_fileUpload"] = pv.PvFileDialog(
-        container=window,
-        x=170, y=257, width=160, height=50,
-        text="upload", font_size=16, files_filter="Excel files (*.xlsx *.xls)",
-        dialog_mode="open", on_file_selected=lambda file_path: print("Selected file:", file_path),
-        enable_drag_drop=True, show_file_name=True,
-        font=C.FONT_POPPINS, font_color=C.COLOR_BLUE_BG, bold=True,
-        icon_path=C.ICON_UPLOAD, icon_position='left',
-        icon_color=C.COLOR_BLUE_BG, icon_spacing=16, icon_scale=1.2,
-        tag='file_upload', idle_color=C.COLOR_WHITE, clicked_color=None,
-        border_color=C.COLOR_BLACK_BORDER, border_thickness=0, corner_radius=50,
-        border_style="solid", box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)',
-        box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.2)'
-    )
-    return ui
+    def _build_page(self) -> None:
+        self.page.title = "Salesforce Automation"
+        self.page.window.width = 560
+        self.page.window.height = 720
+        self.page.window.resizable = False
+        self.page.window.maximizable = False
+        self.page.padding = 0
+        self.page.spacing = 0
+        self.page.bgcolor = "#F3F8FF"
+        self.page.theme_mode = ft.ThemeMode.LIGHT
+        self.page.theme = ft.Theme(
+            color_scheme_seed="#4F8FEA",
+        )
+        self.page.fonts = {
+            "Poppins": "fonts/Poppins/Poppins.ttf",
+            "OpenSans": "fonts/OpenSans/OpenSans.ttf",
+        }
 
-def _create_action_section(window):
-    """Creates the Run button, the Progress Bar, and the 'running' status text."""
-    ui = {}
+    def _build_controls(self) -> None:
+        self.file_picker = ft.FilePicker(on_result=self._handle_file_pick_result)
+        self.page.overlay.append(self.file_picker)
 
-    ui["Rectangle"] = pv.PvRectangle(container=window, x=170, y=183, width=160,
-        height=56, idle_color=(255, 255, 250, 1), border_color=C.COLOR_WHITE, border_thickness=4,
-        corner_radius=10, border_style="solid", opacity=1, is_visible=False,
-        on_hover=None, on_click=None, on_release=None, tag=None)
-    
-    ui["Button_run"] = pv.PvButton(
-        container=window, x=170, y=180, width=160, height=50,
-        text='run', font=C.FONT_POPPINS, font_size=16,
-        font_color=C.COLOR_BLUE_BG, font_color_hover=None,
-        bold=True, italic=False, underline=False, strikethrough=False,
-        idle_color=(255, 251, 251, 1), hover_color=None, clicked_color=None,
-        border_color=C.COLOR_BORDER_GRAY, border_hover_color=None, border_thickness=0,
-        corner_radius=25, border_style="solid",
-        box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)',
-        box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.2)',
-        icon_path=C.ICON_RUN, icon_position='right',
-        icon_color=C.COLOR_BLUE_BG, icon_color_hover=None,
-        icon_spacing=36, icon_scale=1.2, paddings=(0, 0, 0, 0),
-        is_visible=True, is_disabled=False, opacity=1,
-        on_hover=None, on_click=None, on_release=None, tag='run'
-    )
+        self._on_browse: Optional[Callable[[str], None]] = None
 
-    ui["Button_stop"] = pv.PvButton(
-        container=window, x=140, y=198, width=25, height=25, # Aligned with progress bar (y=215, h=25)
-        text='', font=C.FONT_POPPINS, font_size=16,
-        font_color=C.COLOR_WHITE, font_color_hover=None,
-        bold=True, italic=False, underline=False, strikethrough=False,
-        idle_color=C.COLOR_WHITE, hover_color=None, clicked_color=None,
-        border_color=C.COLOR_BORDER_GRAY, border_hover_color=None, border_thickness=0,
-        corner_radius=45, border_style="solid",
-        box_shadow='1px 2px 4px 0px rgba(0,0,0,0.2)',
-        box_shadow_hover='0px 2px 4px 5px rgba(0,0,0,0.5)',
-        icon_path=C.ICON_STOP,
-        icon_position="right",
-        icon_color=C.COLOR_BLUE_BG, icon_color_hover=None, # Ensure icon is white
-        icon_spacing=0, icon_scale=0.5, paddings=(0, 0, 0, 0),
-        is_visible=False, is_disabled=False, opacity=1,
-        on_hover=None, on_click=None, on_release=None, tag='stop'
-    )
+        self.file_name_text = ft.Text(
+            "לא נבחר קובץ",
+            size=14,
+            color="#5B6B85",
+            text_align=ft.TextAlign.RIGHT,
+            max_lines=2,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
 
-    # Use our custom class here
-    ui["Progressbar"] = DynamicContrastProgressBar(
-        container=window, x=170, y=215, width=160, height=25,
-        min_value=0, max_value=100, value=0,
-        track_color=C.COLOR_BLUE_BG, track_border_color=C.COLOR_WHITE,
-        fill_color=C.COLOR_WHITE,
-        track_corner_radius=7, opacity=1,
-        idle_color=C.COLOR_WHITE_TRANSPARENT, track_border_thickness=4, scale=1,
-        track_height=12, is_circular=False, border_thickness=0, suffix='',
-        font=C.FONT_OPENSANS, font_size=15,
-        font_color=C.COLOR_BLUE_BG, font_color_hover=None,
-        bold=True, italic=False, underline=False, strikeout=False,
-        is_visible=False, is_disabled=False,
-        on_hover=None, on_click=None, on_release=None, tag='Progressbar'
-    )
+        self.status_text = ft.Text(
+            "",
+            size=14,
+            color="#F8FAFC",
+            text_align=ft.TextAlign.CENTER,
+            weight=ft.FontWeight.W_600,
+            font_family="OpenSans",
+        )
 
-    ui["Text_running"] = pv.PvText(
-        container=window, x=205, y=187.5, width=90, height=30,
-        idle_color=C.COLOR_PURPLE_TRANSPARENT, text='Running',
-        text_alignment='center', paddings=(0, 0, 0, 0),
-        font=C.FONT_POPPINS, font_size=20, font_color=C.COLOR_BLUE_BG,
-        bold=True, italic=False, underline=False, strikethrough=False,
-        opacity=1, border_color=None, corner_radius=0,
-        is_visible=False, on_hover=None, on_click=None, on_release=None, tag=None
-    )
+        self.progress_ring = ft.ProgressBar(
+            width=280,
+            value=0,
+            color="#FFFFFF",
+            bgcolor="#2E69C7",
+            visible=False,
+            bar_height=14,
+            border_radius=8,
+        )
+        self.progress_label = ft.Text(
+            "",
+            size=13,
+            color="#E2ECFF",
+            visible=False,
+            text_align=ft.TextAlign.CENTER,
+        )
 
-    return ui
+        self.run_button = ft.ElevatedButton(
+            "הפעל",
+            icon=ft.Icons.PLAY_ARROW_ROUNDED,
+            width=180,
+            height=48,
+            style=self._primary_button_style(),
+        )
+        self.stop_button = ft.OutlinedButton(
+            "עצור",
+            icon=ft.Icons.STOP_CIRCLE_OUTLINED,
+            width=180,
+            height=48,
+            visible=False,
+            style=ft.ButtonStyle(
+                color="#1D4F9E",
+                side=ft.BorderSide(1, "#B8D0F8"),
+                shape=ft.RoundedRectangleBorder(radius=14),
+                bgcolor="#FFFFFF",
+            ),
+        )
+        self.browse_button = ft.OutlinedButton(
+            "בחר קובץ Excel",
+            icon=ft.Icons.UPLOAD_FILE_ROUNDED,
+            width=180,
+            height=48,
+            style=ft.ButtonStyle(
+                color="#1D4F9E",
+                side=ft.BorderSide(1, "#B8D0F8"),
+                shape=ft.RoundedRectangleBorder(radius=14),
+                bgcolor="#FFFFFF",
+            ),
+        )
+        self.settings_button = ft.IconButton(
+            icon=ft.Icons.SETTINGS_ROUNDED,
+            icon_color="#FFFFFF",
+            bgcolor="#2F6FD5",
+            tooltip="הגדרות",
+        )
+        self.help_button = ft.IconButton(
+            icon=ft.Icons.HELP_OUTLINE_ROUNDED,
+            icon_color="#2F6FD5",
+            bgcolor="#E9F1FF",
+            tooltip="עזרה",
+        )
 
-def _create_status_section(window):
-    """Creates the bottom status text."""
-    ui = {}
-    ui["Text_mainStatus"] = pv.PvText(
-        container=window, x=139, y=315, width=222, height=34,
-        bg_color=C.COLOR_PURPLE_TRANSPARENT, text="", is_visible=True,
-        text_alignment='center', paddings=(0, 0, 0, 0),
-        font=C.FONT_POPPINS, font_size=16, font_color=(254, 254, 254, 1),
-        bold=True, italic=False, underline=False,
-        strikethrough=False, opacity=1, border_color=None, corner_radius=0,
-        tag='status'
-    )
-    return ui
+    def _render(self) -> None:
+        header = ft.Container(
+            padding=ft.padding.symmetric(horizontal=28, vertical=26),
+            gradient=ft.LinearGradient(
+                begin=ft.alignment.top_right,
+                end=ft.alignment.bottom_left,
+                colors=["#4F8FEA", "#2A5EB8"],
+            ),
+            content=ft.Column(
+                spacing=18,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            self.help_button,
+                            ft.Column(
+                                spacing=4,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Text(
+                                        "הגדרת משתמשים",
+                                        size=28,
+                                        weight=ft.FontWeight.W_700,
+                                        color="#FFFFFF",
+                                        font_family="Poppins",
+                                        text_align=ft.TextAlign.CENTER,
+                                    ),
+                                    ft.Text(
+                                        "salesforce",
+                                        size=20,
+                                        weight=ft.FontWeight.W_600,
+                                        color="#DCE8FF",
+                                        font_family="Poppins",
+                                        text_align=ft.TextAlign.CENTER,
+                                    ),
+                                ],
+                            ),
+                            self.settings_button,
+                        ],
+                    ),
+                    ft.Text(
+                        "הרצת אוטומציה לקבצי Excel עם שליטה על מצב, עצירה והגדרות משתמש.",
+                        size=14,
+                        color="#E2ECFF",
+                        text_align=ft.TextAlign.RIGHT,
+                    ),
+                ],
+            ),
+        )
 
-# ============================================================================
-# PUBLIC API
-# ============================================================================
+        file_section = ft.Container(
+            border_radius=18,
+            bgcolor="#FFFFFF",
+            padding=22,
+            content=ft.Column(
+                spacing=14,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.Text(
+                                "קובץ עבודה",
+                                size=18,
+                                weight=ft.FontWeight.W_700,
+                                color="#1A2A42",
+                            ),
+                            ft.Icon(ft.Icons.DESCRIPTION_OUTLINED, color="#4F8FEA"),
+                        ],
+                    ),
+                    ft.Container(
+                        border=ft.border.all(1, "#D8E5FB"),
+                        border_radius=14,
+                        padding=ft.padding.symmetric(horizontal=16, vertical=14),
+                        bgcolor="#F8FBFF",
+                        content=self.file_name_text,
+                    ),
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        controls=[self.browse_button],
+                    ),
+                ],
+            ),
+        )
 
-def create_window():
-    """Initializes and returns the main application window."""
-    window = pv.PvWindow(
-        title="PyVisual Window",
-        width=500,
-        height=400,
-        bg_color=C.COLOR_BLUE_BG,
-        icon=None,
-        bg_image=None,
-        is_frameless=False,
-        is_resizable=False
-    )
-    return window
+        actions_section = ft.Container(
+            border_radius=18,
+            bgcolor="#2F6FD5",
+            padding=22,
+            content=ft.Column(
+                spacing=16,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Text(
+                        "ניהול הרצה",
+                        size=18,
+                        weight=ft.FontWeight.W_700,
+                        color="#FFFFFF",
+                    ),
+                    ft.Text(
+                        "הפעלה ועצירה בטוחה של תהליך האוטומציה.",
+                        size=13,
+                        color="#DCE8FF",
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                    self.progress_ring,
+                    self.progress_label,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        controls=[self.run_button, self.stop_button],
+                    ),
+                ],
+            ),
+        )
 
-def create_ui(window):
-    """
-    Constructs all UI elements and returns them in a single flat dictionary.
-    Safe for external consumption by app.py.
-    """
-    ui = {}
-    
-    # Merge all separate sections into the main dictionary
-    ui.update(_create_header_section(window))
-    ui.update(_create_upload_section(window))
-    ui.update(_create_action_section(window))
-    ui.update(_create_status_section(window))
-    
-    return ui
+        status_section = ft.Container(
+            border_radius=18,
+            bgcolor="#163C75",
+            padding=18,
+            content=ft.Column(
+                spacing=8,
+                controls=[
+                    ft.Text(
+                        "סטטוס",
+                        size=16,
+                        weight=ft.FontWeight.W_700,
+                        color="#FFFFFF",
+                        text_align=ft.TextAlign.RIGHT,
+                    ),
+                    self.status_text,
+                ],
+            ),
+        )
+
+        content = ft.SafeArea(
+            content=ft.Container(
+                expand=True,
+                padding=ft.padding.only(left=22, right=22, top=22, bottom=28),
+                content=ft.Column(
+                    spacing=18,
+                    controls=[header, file_section, actions_section, status_section],
+                ),
+            )
+        )
+
+        self.page.add(content)
+        self.page.update()
+
+    def _primary_button_style(self) -> ft.ButtonStyle:
+        return ft.ButtonStyle(
+            color="#1D4F9E",
+            bgcolor="#FFFFFF",
+            shape=ft.RoundedRectangleBorder(radius=14),
+            overlay_color="#E6F0FF",
+        )
+
+    def bind_actions(
+        self,
+        on_browse: Callable[[str], None],
+        on_run: Callable[[ft.ControlEvent], None],
+        on_stop: Callable[[ft.ControlEvent], None],
+        on_settings: Callable[[ft.ControlEvent], None],
+        on_help: Callable[[ft.ControlEvent], None],
+    ) -> None:
+        self._on_browse = on_browse
+        self.run_button.on_click = on_run
+        self.stop_button.on_click = on_stop
+        self.settings_button.on_click = on_settings
+        self.help_button.on_click = on_help
+        self.browse_button.on_click = self.pick_file
+
+    def pick_file(self, _event: ft.ControlEvent | None = None) -> None:
+        self.file_picker.pick_files(
+            allow_multiple=False,
+            allowed_extensions=["xlsx", "xls"],
+            dialog_title="בחר קובץ Excel",
+        )
+
+    def _handle_file_pick_result(self, event: ft.FilePickerResultEvent) -> None:
+        if not event.files:
+            return
+        file_path = event.files[0].path
+        self.set_selected_file(file_path)
+        if self._on_browse:
+            self._on_browse(file_path)
+
+    def set_selected_file(self, file_path: str | None) -> None:
+        display_name = os.path.basename(file_path) if file_path else "לא נבחר קובץ"
+        self.file_name_text.value = display_name
+        self.file_name_text.tooltip = file_path or None
+        self._safe_update()
+
+    def set_status(self, text: str) -> None:
+        self.status_text.value = text or ""
+        self._safe_update()
+
+    def set_progress(self, value: int) -> None:
+        clamped = max(0, min(100, value))
+        self.progress_ring.value = clamped / 100
+        self.progress_label.value = f"{clamped}%"
+        self._safe_update()
+
+    def set_running(self, is_running: bool) -> None:
+        self.run_button.visible = not is_running
+        self.stop_button.visible = is_running
+        self.progress_ring.visible = is_running
+        self.progress_label.visible = is_running
+        if is_running:
+            self.stop_button.disabled = False
+            self.set_progress(0)
+        self._safe_update()
+
+    def disable_stop(self) -> None:
+        self.stop_button.disabled = True
+        self._safe_update()
+
+    def show_alert(self, title: str, message: str, level: str = "info") -> None:
+        icon = {
+            "warning": ft.Icons.WARNING_AMBER_ROUNDED,
+            "error": ft.Icons.ERROR_OUTLINE_ROUNDED,
+            "critical": ft.Icons.ERROR_OUTLINE_ROUNDED,
+            "info": ft.Icons.INFO_OUTLINE_ROUNDED,
+        }.get(level, ft.Icons.INFO_OUTLINE_ROUNDED)
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                spacing=10,
+                controls=[ft.Icon(icon, color="#2F6FD5"), ft.Text(title)],
+            ),
+            content=ft.Text(message, selectable=True),
+            actions=[ft.TextButton("סגור", on_click=lambda _: self._close_dialog(dialog))],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.show_dialog(dialog)
+        self._safe_update()
+
+    def show_help_dialog(self) -> None:
+        dialog = create_help_dialog(self.page)
+        self.page.show_dialog(dialog)
+        self._safe_update()
+
+    def _close_dialog(self, dialog: ft.AlertDialog) -> None:
+        dialog.open = False
+        self.page.pop_dialog()
+        self._safe_update()
+
+    def _safe_update(self) -> None:
+        with self._lock:
+            self.page.update()
