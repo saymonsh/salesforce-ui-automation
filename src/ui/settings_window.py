@@ -22,6 +22,12 @@ def build_settings_dialog(
     initial_values: dict[str, str],
     on_save,
 ) -> tuple[ft.AlertDialog, SettingsFields]:
+    base_width = page.width or page.window.width or 560
+    base_height = page.height or page.window.height or 720
+    dialog_width = min(max(base_width - 64, 320), 760)
+    dialog_height = min(max(base_height - 220, 280), 460)
+    full_field_width = max(dialog_width - 48, 272)
+
     fields = SettingsFields(
         user_name=ft.TextField(label="USER_NAME", value=initial_values.get("USER_NAME", ""), text_align=ft.TextAlign.RIGHT),
         password=ft.TextField(
@@ -46,9 +52,12 @@ def build_settings_dialog(
             text_align=ft.TextAlign.RIGHT,
         ),
     )
+    fields.url.width = full_field_width
+    fields.uploaded_file_path.width = full_field_width
 
     fields_column = ft.Column(
         spacing=14,
+        expand=True,
         scroll=ft.ScrollMode.AUTO,
         controls=[
             ft.ResponsiveRow(
@@ -69,15 +78,15 @@ def build_settings_dialog(
                     ft.Container(fields.act_description, col={"xs": 12, "md": 8}),
                 ]
             ),
-            fields.url,
-            fields.uploaded_file_path,
+            ft.Container(content=fields.url),
+            ft.Container(content=fields.uploaded_file_path),
         ],
     )
 
     dialog = ft.AlertDialog(
         modal=True,
         title=ft.Text("הגדרות משתמש"),
-        content=ft.Container(width=760, content=fields_column),
+        content=ft.Container(width=dialog_width, height=dialog_height, content=fields_column),
         actions=[
             ft.TextButton("ביטול", on_click=lambda _: _close_dialog(page, dialog)),
             ft.ElevatedButton("שמור", icon=ft.Icons.SAVE_OUTLINED, on_click=lambda _: on_save(fields, dialog)),

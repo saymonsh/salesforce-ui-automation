@@ -23,6 +23,7 @@ class MainView:
         self.page.window.maximizable = False
         self.page.padding = 0
         self.page.spacing = 0
+        self.page.scroll = ft.ScrollMode.AUTO
         self.page.bgcolor = "#F3F8FF"
         self.page.theme_mode = ft.ThemeMode.LIGHT
         self.page.theme = ft.Theme(
@@ -34,8 +35,8 @@ class MainView:
         }
 
     def _build_controls(self) -> None:
-        self.file_picker = ft.FilePicker(on_result=self._handle_file_pick_result)
-        self.page.overlay.append(self.file_picker)
+        self.file_picker = ft.FilePicker()
+        self.page.services.append(self.file_picker)
 
         self._on_browse: Optional[Callable[[str], None]] = None
 
@@ -120,11 +121,14 @@ class MainView:
         )
 
     def _render(self) -> None:
+        section_width = (self.page.window.width or 560) - 44
+
         header = ft.Container(
+            width=section_width,
             padding=ft.padding.symmetric(horizontal=28, vertical=26),
             gradient=ft.LinearGradient(
-                begin=ft.alignment.top_right,
-                end=ft.alignment.bottom_left,
+                begin=ft.Alignment.TOP_RIGHT,
+                end=ft.Alignment.BOTTOM_LEFT,
                 colors=["#4F8FEA", "#2A5EB8"],
             ),
             content=ft.Column(
@@ -172,6 +176,7 @@ class MainView:
         )
 
         file_section = ft.Container(
+            width=section_width,
             border_radius=18,
             bgcolor="#FFFFFF",
             padding=22,
@@ -206,6 +211,7 @@ class MainView:
         )
 
         actions_section = ft.Container(
+            width=section_width,
             border_radius=18,
             bgcolor="#2F6FD5",
             padding=22,
@@ -236,6 +242,7 @@ class MainView:
         )
 
         status_section = ft.Container(
+            width=section_width,
             border_radius=18,
             bgcolor="#163C75",
             padding=18,
@@ -259,6 +266,8 @@ class MainView:
                 expand=True,
                 padding=ft.padding.only(left=22, right=22, top=22, bottom=28),
                 content=ft.Column(
+                    expand=True,
+                    scroll=ft.ScrollMode.AUTO,
                     spacing=18,
                     controls=[header, file_section, actions_section, status_section],
                 ),
@@ -292,16 +301,21 @@ class MainView:
         self.browse_button.on_click = self.pick_file
 
     def pick_file(self, _event: ft.ControlEvent | None = None) -> None:
-        self.file_picker.pick_files(
+        self.page.run_task(self._pick_file_async)
+
+    async def _pick_file_async(self) -> None:
+        files = await self.file_picker.pick_files(
             allow_multiple=False,
+            file_type=ft.FilePickerFileType.CUSTOM,
             allowed_extensions=["xlsx", "xls"],
             dialog_title="בחר קובץ Excel",
         )
+        self._handle_file_pick_result(files)
 
-    def _handle_file_pick_result(self, event: ft.FilePickerResultEvent) -> None:
-        if not event.files:
+    def _handle_file_pick_result(self, files: list[ft.FilePickerFile] | None) -> None:
+        if not files:
             return
-        file_path = event.files[0].path
+        file_path = files[0].path or files[0].name
         self.set_selected_file(file_path)
         if self._on_browse:
             self._on_browse(file_path)
