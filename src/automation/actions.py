@@ -74,7 +74,7 @@ def create_actions(driver, typer, check_stop=None):
     if typer == 1 or typer == 2:
         select_action1 = driver.find_element(By.XPATH, S.SELECT_ACTION_ROW8)
         driver.execute_script("arguments[0].click();", select_action1)
-        
+    
     # Using config value for ACT_NU
     select_action2_element = driver.find_element(By.XPATH,
                                                  S.SELECT_ACTION_ACT_NU_TEMPLATE.format(act_nu=parm.ACT_NU))
