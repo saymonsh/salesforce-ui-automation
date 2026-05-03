@@ -6,6 +6,7 @@ from src.automation.driver_manager import DriverManager
 from src.automation import selectors as S
 from src.core.config import config_instance as parm
 from src.core.utils import verify_running
+from src.ui.worker import ProgressManager
 
 
 class BaseProcessor(ABC):
@@ -14,6 +15,7 @@ class BaseProcessor(ABC):
         self.is_stopped = False
         self.driver = None
         self.chromedriver_process = None
+        self.progress_manager = ProgressManager(signals) if signals else None
 
     def stop(self):
         """Signals the processor to stop execution."""
@@ -28,10 +30,7 @@ class BaseProcessor(ABC):
         if self.signals:
             if status:
                 self.signals.status.emit(status)
-            if progress is not None:
-                self.signals.progress.emit(progress)
             if error:
-                # Keeping strictly to update_ui behavior which just updated text/progress
                 pass
 
     # =========================================================================

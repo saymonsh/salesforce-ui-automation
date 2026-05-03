@@ -38,8 +38,9 @@ class WorkerManager:
 
         return True
 
-    def connect_signals(self, on_finished, on_progress, on_status):
+    def connect_signals(self, on_started, on_finished, on_progress, on_status):
         if self.worker:
+            self.worker.signals.started.connect(on_started)
             self.worker.signals.finished.connect(on_finished)
             self.worker.signals.progress.connect(on_progress)
             self.worker.signals.status.connect(on_status)

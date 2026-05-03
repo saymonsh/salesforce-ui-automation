@@ -56,14 +56,21 @@ class Controller:
             return
 
         self.worker_manager.connect_signals(
+            on_started=self.on_worker_started,
             on_finished=self.on_worker_finished,
             on_progress=self.update_progress,
             on_status=self.update_status,
         )
         self.worker_manager.start_thread()
 
-    def update_progress(self, value):
-        self.main_view.set_progress(value)
+    def on_worker_started(self, total_items: int):
+        self.main_view.set_progress(0)
+        self.main_view.set_status(f"Starting process... ({total_items} items)")
+
+    def update_progress(self, current: int, total: int, percentage: float):
+        # Flet expects progress bar value between 0.0 and 1.0
+        normalized_progress = percentage / 100.0
+        self.main_view.set_progress(normalized_progress)
 
     def update_status(self, status):
         if status != "Done":
@@ -74,7 +81,10 @@ class Controller:
 
         if not success:
             self.main_view.set_status(f"Error: {message}")
+            self.main_view.set_progress(0) # Reset or error state
         else:
             self.main_view.set_status(message)
+            if message != "Execution Stopped":
+                self.main_view.set_progress(1.0) # Force 100% completion
 
         self.worker_manager.cleanup()

@@ -41,8 +41,9 @@ class LoginProcessor(BaseProcessor):
             self._setup_driver()
             self._login("https://welfareministry.lightning.force.com/lightning/page/home")
 
-            counter = 1
             print(f"Total rows in Excel: {len(excel_data)}")
+            if self.progress_manager:
+                self.progress_manager.initialize(len(excel_data))
 
             for index, row in excel_data.iterrows():
                 verify_running(lambda: self.is_stopped)
@@ -50,11 +51,6 @@ class LoginProcessor(BaseProcessor):
                 id_number = row['תעודות זהות']
                 typer = row['סוג']
                 date = row['תאריך']
-                
-                # Update Progress
-                percent = int((counter / len(excel_data)) * 100)
-                print(f"{counter}/{len(excel_data)} - {percent}%")
-                self.update_ui(progress=percent)
                 
                 try:
                     check = lambda: self.is_stopped
@@ -92,7 +88,8 @@ class LoginProcessor(BaseProcessor):
                     if row['סוג'] == 1:
                         raise Exception("Critical Failure: Type 1 processing failed.")
 
-                counter += 1
+                if self.progress_manager:
+                    self.progress_manager.advance(1)
 
         except StopException:
             print("Process stopped by user (StopException caught).")

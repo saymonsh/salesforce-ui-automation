@@ -25,19 +25,14 @@ class CandidateProcessor(BaseProcessor):
             # Specific long path click from add_candidats.py
             self.driver.find_element(By.XPATH, S.CANDIDATE_INITIAL_BUTTON).click()
 
-            counter = 1
-            smart_sleep(10, lambda: self.is_stopped)
-
             print(f"Total rows in Excel: {len(excel_data)}")
+            if self.progress_manager:
+                self.progress_manager.initialize(len(excel_data))
 
             for index, row in excel_data.iterrows():
                 verify_running(lambda: self.is_stopped)
 
                 id_number = row['תעודות זהות']
-
-                percent = int((counter / len(excel_data)) * 100)
-                print(f"{counter}/{len(excel_data)} - {percent}%")
-                self.update_ui(progress=percent)
                 
                 id_number = int(id_number)
                 verify_running(lambda: self.is_stopped)
@@ -58,7 +53,9 @@ class CandidateProcessor(BaseProcessor):
                 verify_running(lambda: self.is_stopped)
                 clear = self.driver.find_element(By.XPATH, S.CANDIDATE_ID_INPUT)
                 clear.clear()
-                counter += 1
+                
+                if self.progress_manager:
+                    self.progress_manager.advance(1)
                 
         except StopException:
             print("Candidate Processor: Stopped by user.")
