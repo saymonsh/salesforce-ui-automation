@@ -34,9 +34,25 @@ def perform_search(driver, id_number, check_stop=None):
     verify_running(check_stop)
     smart_sleep(3, check_stop)
 
-    # Wait for element and click
-    pa = WebDriverWait(driver, 30).until(ec.element_to_be_clickable((By.XPATH, S.SEARCH_RESULT_LINK)))
-    pa.click()
+       print(f"DEBUG [perform_search]: Sent search. Waiting for search result link... (Timeout: 30s)")
+    print(f"DEBUG [perform_search]: Looking for XPath: {S.SEARCH_RESULT_LINK}")
+    try:
+        # Wait for element and click
+        pa = WebDriverWait(driver, 30).until(ec.element_to_be_clickable((By.XPATH, S.SEARCH_RESULT_LINK)))
+        print("DEBUG [perform_search]: Element found and clickable. Clicking...")
+        pa.click()
+        print("DEBUG [perform_search]: Clicked successfully.")
+    except Exception as e:
+        print(f"DEBUG [perform_search]: Exception occurred while waiting for link: {str(e)}")
+        try:
+            driver.save_screenshot("debug_search_error.png")
+            print("DEBUG [perform_search]: Saved screenshot to debug_search_error.png")
+            with open("debug_page_source.html", "w", encoding="utf-8") as f:
+                f.write(driver.page_source)
+            print("DEBUG [perform_search]: Saved page source to debug_page_source.html")
+        except Exception as screenshot_e:
+            print(f"DEBUG [perform_search]: Failed to save debug artifacts: {str(screenshot_e)}")
+        raise
 
     smart_sleep(3, check_stop)
 
@@ -57,13 +73,13 @@ def create_actions(driver, typer, check_stop=None):
 
     if typer == 1 or typer == 2:
         select_action1 = driver.find_element(By.XPATH, S.SELECT_ACTION_ROW8)
-        select_action1.click()
-    
+        driver.execute_script("arguments[0].click();", select_action1)
+        
     # Using config value for ACT_NU
     select_action2_element = driver.find_element(By.XPATH,
                                                  S.SELECT_ACTION_ACT_NU_TEMPLATE.format(act_nu=parm.ACT_NU))
     driver.execute_script("arguments[0].scrollIntoView(true);", select_action2_element)
-    select_action2_element.click()
+    driver.execute_script("arguments[0].click();", select_action2_element)
 
     verify_running(check_stop)
 
@@ -93,7 +109,7 @@ def create_report(driver, date, typer, check_stop=None):
 
     if typer != 6:
         action_report_element = driver.find_element(By.XPATH, S.REPORT_ACTION_ROW8)
-        action_report_element.click()
+        driver.execute_script("arguments[0].click();", action_report_element)
     elif typer == 6:
         # Using config value for ACT_NU
         action_report_element = driver.find_element(By.XPATH,
