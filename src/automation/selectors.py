@@ -15,12 +15,7 @@ LOGIN_TOTP_SAVE = "//input[@id='save']"
 # ---- Search Flow (actions.perform_search) ----
 SEARCH_BUTTON = "//button[@class='slds-button slds-button_neutral search-button slds-truncate']"
 SEARCH_INPUT = "//input[@placeholder='חיפוש...']"
-SEARCH_RESULT_LINK = (
-    "//*[@id='brandBand_2']/div/div/div[2]/div/div["
-    "2]/div/div/div/div[3]/div/div/div/div/div["
-    "2]/div[1]/div[2]/div/div/div/div[2]/div[2]/div["
-    "1]/div/div/table/tbody/tr/th/span/a"
-)
+SEARCH_RESULT_LINK = "//div[contains(@class, 'forceSearchResultsGridLVM')]//table/tbody/tr[1]/th//a"
 
 # ---- Create Actions Flow (actions.create_actions) ----
 CREATE_ACTION_BUTTON = "//button[contains(.,'יצירת פעילויות/תוכנית אישית')]"
