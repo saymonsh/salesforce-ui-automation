@@ -34,7 +34,7 @@ def perform_search(driver, id_number, check_stop=None):
     verify_running(check_stop)
     smart_sleep(3, check_stop)
 
-       print(f"DEBUG [perform_search]: Sent search. Waiting for search result link... (Timeout: 30s)")
+    print(f"DEBUG [perform_search]: Sent search. Waiting for search result link... (Timeout: 30s)")
     print(f"DEBUG [perform_search]: Looking for XPath: {S.SEARCH_RESULT_LINK}")
     try:
         # Wait for element and click
