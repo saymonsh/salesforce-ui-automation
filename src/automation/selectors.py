@@ -40,14 +40,7 @@ COMMUNICATION_TYPE_SELECT = "//select[@name='CommunicationType']/option[text()='
 FINISH_BUTTON = "//button[contains(.,'סיים')]"
 
 # ---- Candidate Processor ----
-CANDIDATE_INITIAL_BUTTON = (
-    "/html/body/div[4]/div[2]/div/div[2]/div/div[2]/div/div/div/div/"
-    "runtime_platform_actions-executor-lwc-screen/"
-    "c-find-p-es-to-service-schedule-action/lightning-quick-action-panel/"
-    "div/slot/c-find-p-es-to-service-schedule-container/lightning-card/"
-    "article/div[2]/slot/lightning-card/article/div[2]/slot/div/"
-    "lightning-button[1]/button"
-)
+CANDIDATE_INITIAL_BUTTON = "//c-find-p-es-to-service-schedule-action//button[@title='next Step']"
 CANDIDATE_ID_INPUT = "//input[@placeholder='תעודת זהות']"
 # Note: CANDIDATE_CHECKBOX uses f-string with id_number, template provided:
 CANDIDATE_CHECKBOX_TEMPLATE = ".//td[number()= '{id_number}']/preceding-sibling::td//input[@type = 'checkbox']"
