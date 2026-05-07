@@ -330,10 +330,10 @@ class MainView:
         self.status_text.value = text or ""
         self._safe_update()
 
-    def set_progress(self, value: int) -> None:
-        clamped = max(0, min(100, value))
-        self.progress_ring.value = clamped / 100
-        self.progress_label.value = f"{clamped}%"
+    def set_progress(self, value: float) -> None:
+        clamped = max(0.0, min(1.0, float(value)))
+        self.progress_ring.value = clamped
+        self.progress_label.value = f"{int(clamped * 100)}%"
         self._safe_update()
 
     def set_running(self, is_running: bool) -> None:

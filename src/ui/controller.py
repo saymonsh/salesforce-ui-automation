@@ -22,6 +22,10 @@ class Controller:
 
         self._attach_events()
         self._init_ui_state()
+        
+        # State tracking for progress
+        self.total_items = 0
+        self.current_item = 0
 
     def _init_ui_state(self):
         if self.uploaded_file_path:
@@ -58,33 +62,70 @@ class Controller:
         self.worker_manager.connect_signals(
             on_started=self.on_worker_started,
             on_finished=self.on_worker_finished,
-            on_progress=self.update_progress,
+            on_item_processed=self.on_item_processed,
             on_status=self.update_status,
         )
         self.worker_manager.start_thread()
 
     def on_worker_started(self, total_items: int):
-        self.main_view.set_progress(0)
+        self.total_items = max(1, total_items)
+        self.current_item = 0
+        if self.page:
+            self.page.run_task(self._safe_worker_started, total_items)
+        else:
+            self.main_view.set_progress(0.0)
+            self.main_view.set_status(f"Starting process... ({total_items} items)")
+
+    async def _safe_worker_started(self, total_items):
+        self.main_view.set_progress(0.0)
         self.main_view.set_status(f"Starting process... ({total_items} items)")
 
-    def update_progress(self, current: int, total: int, percentage: float):
-        # Flet expects progress bar value between 0.0 and 1.0
-        normalized_progress = percentage / 100.0
-        self.main_view.set_progress(normalized_progress)
+    def on_item_processed(self):
+        self.current_item += 1
+        percentage = self.current_item / self.total_items
+        if self.page:
+            self.page.run_task(self._safe_update_progress, percentage)
+        else:
+            self.main_view.set_progress(percentage)
+
+    async def _safe_update_progress(self, percentage):
+        self.main_view.set_progress(percentage)
 
     def update_status(self, status):
         if status != "Done":
-            self.main_view.set_status(status)
+            if self.page:
+                self.page.run_task(self._safe_update_status, status)
+            else:
+                self.main_view.set_status(status)
+
+    async def _safe_update_status(self, status):
+        self.main_view.set_status(status)
 
     def on_worker_finished(self, success, message):
+        if self.page:
+            self.page.run_task(self._safe_worker_finished, success, message)
+        else:
+            # Handle synchronously if page is missing or tests
+            self.worker_manager.set_idle_ui()
+            if not success:
+                self.main_view.set_status(f"Error: {message}")
+                self.main_view.set_progress(0.0)
+            else:
+                self.main_view.set_status(message)
+                if message != "Execution Stopped":
+                    self.main_view.set_progress(1.0)
+            self.worker_manager.cleanup()
+
+    async def _safe_worker_finished(self, success, message):
         self.worker_manager.set_idle_ui()
 
         if not success:
             self.main_view.set_status(f"Error: {message}")
-            self.main_view.set_progress(0) # Reset or error state
+            self.main_view.set_progress(0.0) # Reset or error state
         else:
             self.main_view.set_status(message)
             if message != "Execution Stopped":
                 self.main_view.set_progress(1.0) # Force 100% completion
 
         self.worker_manager.cleanup()
+

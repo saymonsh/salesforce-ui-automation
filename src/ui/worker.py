@@ -21,54 +21,16 @@ class WorkerSignals:
     finished
         bool: success status
         str: message/result
-    progress
-        int: current_item
-        int: total_items
-        float: percentage (0.0 to 100.0)
+    item_processed
+        (no args)
     status
         str: status message
     """
     def __init__(self):
         self.started = _Emitter()
         self.finished = _Emitter()
-        self.progress = _Emitter()
+        self.item_processed = _Emitter()
         self.status = _Emitter()
-
-
-class ProgressManager:
-    """
-    State manager for progress calculation and emission.
-    """
-    def __init__(self, signals: WorkerSignals):
-        self.signals = signals
-        self.total = 0
-        self.current = 0
-        self._is_initialized = False
-
-    def initialize(self, total_items: int):
-        self.total = max(1, total_items) # Prevent DivisionByZero
-        self.current = 0
-        self._is_initialized = True
-        self.signals.started.emit(self.total)
-        self.emit_progress()
-
-    def advance(self, step: int = 1, status: str = None):
-        if not self._is_initialized:
-            return
-        self.current = min(self.total, self.current + step)
-        if status:
-            self.signals.status.emit(status)
-        self.emit_progress()
-
-    def emit_progress(self):
-        percentage = (self.current / self.total) * 100.0 if self.total > 0 else 0.0
-        self.signals.progress.emit(self.current, self.total, percentage)
-        
-    def complete(self):
-        """Forces the progress to 100%."""
-        if self._is_initialized:
-            self.current = self.total
-            self.emit_progress()
 
 
 class AutomationWorker:
@@ -91,14 +53,10 @@ class AutomationWorker:
         message = "Unknown error"
         try:
             self.processor = self.processor_class(signals=self.signals)
-            processor = self.processor
             
-            # The processor implementation must call:
-            # self.signals.started.emit(total_count) or initialize a ProgressManager
-            
-            processor.process(*self.args, **self.kwargs)
+            self.processor.process(*self.args, **self.kwargs)
 
-            if processor.is_stopped:
+            if self.processor.is_stopped:
                 success = True
                 message = "Execution Stopped"
             else:

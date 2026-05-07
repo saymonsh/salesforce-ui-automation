@@ -26,8 +26,8 @@ class CandidateProcessor(BaseProcessor):
             self.driver.find_element(By.XPATH, S.CANDIDATE_INITIAL_BUTTON).click()
 
             print(f"Total rows in Excel: {len(excel_data)}")
-            if self.progress_manager:
-                self.progress_manager.initialize(len(excel_data))
+            if self.signals:
+                self.signals.started.emit(len(excel_data))
 
             for index, row in excel_data.iterrows():
                 verify_running(lambda: self.is_stopped)
@@ -54,8 +54,8 @@ class CandidateProcessor(BaseProcessor):
                 clear = self.driver.find_element(By.XPATH, S.CANDIDATE_ID_INPUT)
                 clear.clear()
                 
-                if self.progress_manager:
-                    self.progress_manager.advance(1)
+                if self.signals:
+                    self.signals.item_processed.emit()
                 
         except StopException:
             print("Candidate Processor: Stopped by user.")

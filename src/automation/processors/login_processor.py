@@ -42,8 +42,8 @@ class LoginProcessor(BaseProcessor):
             self._login("https://welfareministry.lightning.force.com/lightning/page/home")
 
             print(f"Total rows in Excel: {len(excel_data)}")
-            if self.progress_manager:
-                self.progress_manager.initialize(len(excel_data))
+            if self.signals:
+                self.signals.started.emit(len(excel_data))
 
             for index, row in excel_data.iterrows():
                 verify_running(lambda: self.is_stopped)
@@ -88,8 +88,8 @@ class LoginProcessor(BaseProcessor):
                     if row['סוג'] == 1:
                         raise Exception("Critical Failure: Type 1 processing failed.")
 
-                if self.progress_manager:
-                    self.progress_manager.advance(1)
+                if self.signals:
+                    self.signals.item_processed.emit()
 
         except StopException:
             print("Process stopped by user (StopException caught).")
