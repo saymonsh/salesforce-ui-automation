@@ -1,3 +1,4 @@
+import threading
 import pandas as pd
 import pyotp
 from abc import ABC, abstractmethod
@@ -5,22 +6,32 @@ from selenium.webdriver.common.by import By
 from src.automation.driver_manager import DriverManager
 from src.automation import selectors as S
 from src.core.config import config_instance as parm
-from src.core.utils import verify_running
-
+from src.core.exceptions import StopRequestedException
+from src.core.utils import interruptible_find_element
 
 
 class BaseProcessor(ABC):
-    def __init__(self, signals=None):
+    def __init__(self, signals=None, driver_manager=None):
         self.signals = signals
-        self.is_stopped = False
-        self.driver = None
-        self.chromedriver_process = None
-
+        self.driver_manager = driver_manager
+        self.stop_event = threading.Event()
 
     def stop(self):
         """Signals the processor to stop execution."""
-        self.is_stopped = True
-        self.update_ui(status="Stops Execution...")
+        self.stop_event.set()
+        self.update_ui(status="Stopping...")
+
+    def check_for_stop(self):
+        if self.stop_event.is_set():
+            raise StopRequestedException("Execution stopped by user")
+
+    @property
+    def is_stopped(self):
+        return self.stop_event.is_set()
+
+    @property
+    def driver(self):
+        return self.driver_manager.driver if self.driver_manager else None
 
     @abstractmethod
     def process(self, *args, **kwargs):
@@ -39,36 +50,11 @@ class BaseProcessor(ABC):
 
     def _setup_driver(self):
         """Launches chromedriver and creates the Selenium driver instance."""
-        verify_running(lambda: self.is_stopped)
-        self.chromedriver_process = DriverManager.launch_chromedriver()
+        self.check_for_stop()
+        self.driver_manager.launch_chromedriver()
 
-        verify_running(lambda: self.is_stopped)
-        self.driver = DriverManager.create_driver()
-
-    def _cleanup_driver(self):
-        """Quits the driver and terminates the chromedriver process."""
-        if self.driver:
-            try:
-                self.driver.quit()
-            except:
-                pass
-            finally:
-                self.driver = None
-
-        if self.chromedriver_process:
-            self.chromedriver_process.terminate()
-        print("chrome driver has been terminated")
-
-    def _force_close_driver(self):
-        """Force-closes the driver (used during stop/error handling)."""
-        if self.driver:
-            try:
-                print("Forcing driver close due to stop...")
-                self.driver.quit()
-            except Exception as e:
-                print(f"Error during forced driver close: {e}")
-            finally:
-                self.driver = None
+        self.check_for_stop()
+        self.driver_manager.create_driver()
 
     # =========================================================================
     # Shared Login Flow
@@ -82,30 +68,31 @@ class BaseProcessor(ABC):
         secret_key = parm.SECRET_KEY
         totp = pyotp.TOTP(secret_key)
 
-        verify_running(lambda: self.is_stopped)
+        self.check_for_stop()
         self.driver.get(url)
 
-        verify_running(lambda: self.is_stopped)
-        self.driver.implicitly_wait(30)
+        self.check_for_stop()
         self.driver.maximize_window()
 
-        verify_running(lambda: self.is_stopped)
-        username = self.driver.find_element(By.XPATH, S.LOGIN_USERNAME_INPUT)
+        self.check_for_stop()
+        username = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_USERNAME_INPUT, check_stop_func=lambda: self.is_stopped)
         username.send_keys(parm.USER_NAME)
 
-        verify_running(lambda: self.is_stopped)
-        password = self.driver.find_element(By.XPATH, S.LOGIN_PASSWORD_INPUT)
+        self.check_for_stop()
+        password = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_PASSWORD_INPUT, check_stop_func=lambda: self.is_stopped)
         password.send_keys(parm.PASSWORD)
 
-        verify_running(lambda: self.is_stopped)
-        self.driver.find_element(By.XPATH, S.LOGIN_SUBMIT_BUTTON).click()
+        self.check_for_stop()
+        submit = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_SUBMIT_BUTTON, check_stop_func=lambda: self.is_stopped)
+        submit.click()
 
-        verify_running(lambda: self.is_stopped)
-        tc = self.driver.find_element(By.XPATH, S.LOGIN_TOTP_INPUT)
+        self.check_for_stop()
+        tc = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_TOTP_INPUT, check_stop_func=lambda: self.is_stopped)
         tc.send_keys(totp.now())
 
-        verify_running(lambda: self.is_stopped)
-        self.driver.find_element(By.XPATH, S.LOGIN_TOTP_SAVE).click()
+        self.check_for_stop()
+        save = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_TOTP_SAVE, check_stop_func=lambda: self.is_stopped)
+        save.click()
 
     # =========================================================================
     # Shared Excel Reading

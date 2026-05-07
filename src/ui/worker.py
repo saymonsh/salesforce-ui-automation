@@ -1,4 +1,6 @@
 import traceback
+from src.core.exceptions import StopRequestedException
+from src.automation.driver_manager import DriverManager
 
 class _Emitter:
     def __init__(self):
@@ -43,6 +45,7 @@ class AutomationWorker:
         self.kwargs = kwargs
         self.signals = WorkerSignals()
         self.processor = None
+        self.driver_manager = DriverManager()
 
     def stop(self):
         if self.processor:
@@ -52,16 +55,17 @@ class AutomationWorker:
         success = False
         message = "Unknown error"
         try:
-            self.processor = self.processor_class(signals=self.signals)
+            self.processor = self.processor_class(signals=self.signals, driver_manager=self.driver_manager)
             
             self.processor.process(*self.args, **self.kwargs)
 
-            if self.processor.is_stopped:
-                success = True
-                message = "Execution Stopped"
-            else:
-                success = True
-                message = "Done"
+            success = True
+            message = "Done"
+
+        except StopRequestedException:
+            success = True
+            message = "Execution Stopped"
+            print("Worker caught StopRequestedException.")
 
         except Exception as e:
             success = False
@@ -69,6 +73,7 @@ class AutomationWorker:
             traceback.print_exc()
 
         finally:
+            self.driver_manager.close_driver()
             # Guarantee of Completion:
             # Emit final resolution state to UI
             self.signals.finished.emit(success, message)
