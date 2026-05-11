@@ -62,10 +62,21 @@ class SalesforceApiClient:
                 body: bodyData.toString()
             })
             .then(function(response) {
-                return response.json();
+                return response.text();
             })
-            .then(function(data) {
-                callback({success: true, data: data});
+            .then(function(text) {
+                var cleanText = text.trim();
+                if (cleanText.indexOf("*/") === 0) {
+                    cleanText = cleanText.substring(2).trim();
+                } else if (cleanText.indexOf("while(1);") === 0) {
+                    cleanText = cleanText.substring(9).trim();
+                }
+                try {
+                    var data = JSON.parse(cleanText);
+                    callback({success: true, data: data});
+                } catch(err) {
+                    callback({success: false, error: err.message + " | Start of response: " + text.substring(0, 50)});
+                }
             })
             .catch(function(error) {
                 callback({success: false, error: error.message});
