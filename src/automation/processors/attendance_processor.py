@@ -11,7 +11,7 @@ class AttendanceProcessor(BaseProcessor):
         try:
             # 1. Extract Parent Record ID from URL
             url = parm.URL
-            match = re.search(r'recordId=([a-zA-Z0-9]+)', url)
+            match = re.search(r'(?:recordId=|Pa_Service_Schedule__c/)([a-zA-Z0-9]+)', url)
             if not match:
                 raise ValueError("לא ניתן לחלץ recordId מתוך הכתובת המוגדרת ב-config.ini")
             parent_record_id = match.group(1)
