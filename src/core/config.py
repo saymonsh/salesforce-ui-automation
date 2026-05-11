@@ -74,7 +74,8 @@ class Config:
         elif self.TYPE == 2: # Candidates
             if not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
             
-
+        elif self.TYPE == 3: # Attendance Matrix
+            if not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
             
         return errors
 
