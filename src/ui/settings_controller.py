@@ -1,5 +1,5 @@
 from src.core.config import config_instance as parm
-from src.ui.settings_window import SettingsFields, build_settings_dialog
+from src.ui.settings_window import SettingsFields, build_settings_view
 
 
 class SettingsController:
@@ -10,8 +10,7 @@ class SettingsController:
         self.main_view = main_view
 
     def open_settings(self):
-        dialog, _fields = build_settings_dialog(
-            self.page,
+        settings_view, _fields = build_settings_view(
             initial_values={
                 "USER_NAME": parm.USER_NAME or "",
                 "PASSWORD": parm.PASSWORD or "",
@@ -24,10 +23,9 @@ class SettingsController:
             },
             on_save=self._save_settings,
         )
-        self.page.show_dialog(dialog)
-        self.page.update()
+        self.main_view.show_settings_view(settings_view)
 
-    def _save_settings(self, fields: SettingsFields, dialog):
+    def _save_settings(self, fields: SettingsFields):
         parm.update_config("Auth", "USERNAME", fields.user_name.value)
         parm.update_config("Auth", "PASSWORD", fields.password.value)
         parm.update_config("Auth", "SECRET_KEY", fields.secret_key.value)
@@ -43,8 +41,7 @@ class SettingsController:
             self.main_view.show_alert("שגיאת הגדרות", f"שגיאה בשמירת ההגדרות:\n{str(e)}", "error")
             return
 
-        dialog.open = False
-        self.page.pop_dialog()
+        self.main_view.switch_to_main()
         self.main_view.set_selected_file(parm.UPLOADED_FILE_PATH or None)
         self.main_view.set_status("Saved")
 

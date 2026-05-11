@@ -17,46 +17,39 @@ class SettingsFields:
     uploaded_file_path: ft.TextField
 
 
-def build_settings_dialog(
-    page: ft.Page,
+def build_settings_view(
     initial_values: dict[str, str],
     on_save,
-) -> tuple[ft.AlertDialog, SettingsFields]:
-    base_width = page.width or page.window.width or 560
-    base_height = page.height or page.window.height or 720
-    dialog_width = min(max(base_width - 64, 320), 760)
-    dialog_height = min(max(base_height - 220, 280), 460)
-    full_field_width = max(dialog_width - 48, 272)
+) -> tuple[ft.Container, SettingsFields]:
+    
+    def make_field(label: str, value: str, password: bool = False, can_reveal_password: bool = False):
+        return ft.TextField(
+            label=label,
+            value=value,
+            password=password,
+            can_reveal_password=can_reveal_password,
+            text_align=ft.TextAlign.RIGHT,
+            border_radius=8,
+            border_color="#828383",
+            focused_border_color="#de2952",
+            cursor_color="#de2952",
+            bgcolor="#ffffff",
+            color="#000000",
+        )
 
     fields = SettingsFields(
-        user_name=ft.TextField(label="USER_NAME", value=initial_values.get("USER_NAME", ""), text_align=ft.TextAlign.RIGHT),
-        password=ft.TextField(
-            label="PASSWORD",
-            value=initial_values.get("PASSWORD", ""),
-            password=True,
-            can_reveal_password=True,
-            text_align=ft.TextAlign.RIGHT,
-        ),
-        secret_key=ft.TextField(label="SECRET_KEY", value=initial_values.get("SECRET_KEY", ""), text_align=ft.TextAlign.RIGHT),
-        act_description=ft.TextField(
-            label="ACT_DESCRIPTION",
-            value=initial_values.get("ACT_DESCRIPTION", ""),
-            text_align=ft.TextAlign.RIGHT,
-        ),
-        act_nu=ft.TextField(label="ACT_NU", value=initial_values.get("ACT_NU", ""), text_align=ft.TextAlign.RIGHT),
-        url=ft.TextField(label="URL", value=initial_values.get("URL", ""), text_align=ft.TextAlign.RIGHT),
-        type_value=ft.TextField(label="TYPE", value=initial_values.get("TYPE", ""), text_align=ft.TextAlign.RIGHT),
-        uploaded_file_path=ft.TextField(
-            label="UPLOADED_FILE_PATH",
-            value=initial_values.get("UPLOADED_FILE_PATH", ""),
-            text_align=ft.TextAlign.RIGHT,
-        ),
+        user_name=make_field("USER_NAME", initial_values.get("USER_NAME", "")),
+        password=make_field("PASSWORD", initial_values.get("PASSWORD", ""), password=True, can_reveal_password=True),
+        secret_key=make_field("SECRET_KEY", initial_values.get("SECRET_KEY", "")),
+        act_description=make_field("ACT_DESCRIPTION", initial_values.get("ACT_DESCRIPTION", "")),
+        act_nu=make_field("ACT_NU", initial_values.get("ACT_NU", "")),
+        url=make_field("URL", initial_values.get("URL", "")),
+        type_value=make_field("TYPE", initial_values.get("TYPE", "")),
+        uploaded_file_path=make_field("UPLOADED_FILE_PATH", initial_values.get("UPLOADED_FILE_PATH", "")),
     )
-    fields.url.width = full_field_width
-    fields.uploaded_file_path.width = full_field_width
 
     fields_column = ft.Column(
-        spacing=14,
+        spacing=15,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
         controls=[
@@ -83,21 +76,34 @@ def build_settings_dialog(
         ],
     )
 
-    dialog = ft.AlertDialog(
-        modal=True,
-        title=ft.Text("הגדרות משתמש"),
-        content=ft.Container(width=dialog_width, height=dialog_height, content=fields_column),
-        actions=[
-            ft.TextButton("ביטול", on_click=lambda _: _close_dialog(page, dialog)),
-            ft.ElevatedButton("שמור", icon=ft.Icons.SAVE_OUTLINED, on_click=lambda _: on_save(fields, dialog)),
-        ],
-        actions_alignment=ft.MainAxisAlignment.END,
+    save_button = ft.FilledButton(
+        "שמור הגדרות",
+        icon=ft.Icons.SAVE_OUTLINED,
+        style=ft.ButtonStyle(
+            bgcolor="#de2952",
+            color="#ffffff",
+            shape=ft.RoundedRectangleBorder(radius=8),
+            padding=20
+        ),
+        on_click=lambda _: on_save(fields),
+    )
+    
+    header = ft.Text("הגדרות משתמש", size=24, weight=ft.FontWeight.W_700, color="#000000")
+    
+    container = ft.Container(
+        expand=True,
+        bgcolor="#ffffff",
+        border_radius=8,
+        padding=20,
+        content=ft.Column(
+            spacing=20,
+            controls=[
+                header,
+                ft.Divider(color="#828383"),
+                ft.Container(content=fields_column, expand=True),
+                ft.Row(controls=[save_button], alignment=ft.MainAxisAlignment.END),
+            ]
+        )
     )
 
-    return dialog, fields
-
-
-def _close_dialog(page: ft.Page, dialog: ft.AlertDialog) -> None:
-    dialog.open = False
-    page.pop_dialog()
-    page.update()
+    return container, fields

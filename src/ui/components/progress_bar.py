@@ -1,15 +1,27 @@
 import flet as ft
 
-class ProgressBar(ft.UserControl):
+class ProgressBar(ft.Container):
     def __init__(self, width=None):
         super().__init__()
         self.width_val = width
         
-        self.progress_bar = ft.ProgressBar(value=0, width=self.width_val, color="blue", bgcolor="#e0e0e0")
-        self.text = ft.Text(value="0%", text_align=ft.TextAlign.CENTER, size=14, weight=ft.FontWeight.BOLD)
-
-    def build(self):
-        return ft.Column(
+        self.progress_bar = ft.ProgressBar(
+            value=0,
+            width=self.width_val,
+            color="#de2952",
+            bgcolor="#e0e0e0",
+            bar_height=14,
+            border_radius=8
+        )
+        self.text = ft.Text(
+            value="0%",
+            text_align=ft.TextAlign.CENTER,
+            size=14,
+            weight=ft.FontWeight.BOLD,
+            color="#000000"
+        )
+        
+        self.content = ft.Column(
             controls=[
                 self.text,
                 self.progress_bar
@@ -24,7 +36,6 @@ class ProgressBar(ft.UserControl):
         value: float between 0.0 and 1.0
         text: optional custom text to display
         """
-        # Ensure value is between 0.0 and 1.0
         clamped_value = max(0.0, min(1.0, value))
         self.progress_bar.value = clamped_value
         

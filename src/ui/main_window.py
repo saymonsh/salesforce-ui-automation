@@ -5,285 +5,266 @@ from typing import Callable, Optional
 import flet as ft
 
 from src.ui.help_dialog import create_help_dialog
-
+from src.ui.components.progress_bar import ProgressBar
 
 class MainView:
     def __init__(self, page: ft.Page):
         self.page = page
         self._lock = threading.RLock()
+        self.current_nav = "main" # 'main', 'logs', 'settings'
+        self.settings_container = None
+        
         self._build_page()
         self._build_controls()
         self._render()
 
     def _build_page(self) -> None:
         self.page.title = "Salesforce Automation"
-        self.page.window.width = 560
-        self.page.window.height = 720
-        self.page.window.resizable = False
-        self.page.window.maximizable = False
+        self.page.window.width = 900
+        self.page.window.height = 700
+        self.page.window.resizable = True
         self.page.padding = 0
         self.page.spacing = 0
-        self.page.scroll = ft.ScrollMode.AUTO
-        self.page.bgcolor = "#F3F8FF"
+        self.page.bgcolor = "#f4f4f4"
         self.page.theme_mode = ft.ThemeMode.LIGHT
-        self.page.theme = ft.Theme(
-            color_scheme_seed="#4F8FEA",
-        )
-        self.page.fonts = {
-            "Poppins": "fonts/Poppins/Poppins.ttf",
-            "OpenSans": "fonts/OpenSans/OpenSans.ttf",
-        }
 
     def _build_controls(self) -> None:
         self.file_picker = ft.FilePicker()
         self.page.services.append(self.file_picker)
 
         self._on_browse: Optional[Callable[[str], None]] = None
+        self._on_settings_click: Optional[Callable[[ft.ControlEvent], None]] = None
+
+        # --- Main Execution Controls ---
+        self.status_text = ft.Text(
+            "מוכן",
+            size=16,
+            color="#828383",
+            weight=ft.FontWeight.W_600,
+        )
 
         self.file_name_text = ft.Text(
             "לא נבחר קובץ",
             size=14,
-            color="#5B6B85",
-            text_align=ft.TextAlign.RIGHT,
+            color="#000000",
             max_lines=2,
             overflow=ft.TextOverflow.ELLIPSIS,
         )
 
-        self.status_text = ft.Text(
-            "",
-            size=14,
-            color="#F8FAFC",
-            text_align=ft.TextAlign.CENTER,
-            weight=ft.FontWeight.W_600,
-            font_family="OpenSans",
+        self.browse_button = ft.OutlinedButton(
+            "בחר קובץ",
+            icon=ft.Icons.UPLOAD_FILE_ROUNDED,
+            style=ft.ButtonStyle(
+                color="#828383",
+                side=ft.BorderSide(1, "#828383"),
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=20,
+            ),
         )
 
-        self.progress_ring = ft.ProgressBar(
-            width=280,
-            value=0,
-            color="#FFFFFF",
-            bgcolor="#2E69C7",
-            visible=False,
-            bar_height=14,
-            border_radius=8,
-        )
-        self.progress_label = ft.Text(
-            "",
-            size=13,
-            color="#E2ECFF",
-            visible=False,
-            text_align=ft.TextAlign.CENTER,
-        )
-
-        self.run_button = ft.ElevatedButton(
+        self.run_button = ft.FilledButton(
             "הפעל",
             icon=ft.Icons.PLAY_ARROW_ROUNDED,
-            width=180,
-            height=48,
-            style=self._primary_button_style(),
+            style=ft.ButtonStyle(
+                bgcolor="#de2952",
+                color="#ffffff",
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=20,
+            ),
+            expand=True,
         )
+
         self.stop_button = ft.OutlinedButton(
-            "עצור",
+            "עצור תהליך",
             icon=ft.Icons.STOP_CIRCLE_OUTLINED,
-            width=180,
-            height=48,
+            style=ft.ButtonStyle(
+                color="#f27894",
+                side=ft.BorderSide(2, "#f27894"),
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=20,
+            ),
             visible=False,
-            style=ft.ButtonStyle(
-                color="#1D4F9E",
-                side=ft.BorderSide(1, "#B8D0F8"),
-                shape=ft.RoundedRectangleBorder(radius=14),
-                bgcolor="#FFFFFF",
-            ),
+            expand=True,
         )
-        self.browse_button = ft.OutlinedButton(
-            "בחר קובץ Excel",
-            icon=ft.Icons.UPLOAD_FILE_ROUNDED,
-            width=180,
-            height=48,
-            style=ft.ButtonStyle(
-                color="#1D4F9E",
-                side=ft.BorderSide(1, "#B8D0F8"),
-                shape=ft.RoundedRectangleBorder(radius=14),
-                bgcolor="#FFFFFF",
-            ),
-        )
-        self.settings_button = ft.IconButton(
-            icon=ft.Icons.SETTINGS_ROUNDED,
-            icon_color="#FFFFFF",
-            bgcolor="#2F6FD5",
-            tooltip="הגדרות",
-        )
+
+        self.progress_bar = ProgressBar()
+        self.progress_bar.visible = False
+
         self.help_button = ft.IconButton(
             icon=ft.Icons.HELP_OUTLINE_ROUNDED,
-            icon_color="#2F6FD5",
-            bgcolor="#E9F1FF",
+            icon_color="#828383",
             tooltip="עזרה",
         )
 
-    def _render(self) -> None:
-        section_width = (self.page.window.width or 560) - 44
+        # --- Live Logs Controls ---
+        self.logs_list = ft.ListView(expand=True, spacing=5, auto_scroll=True)
 
-        header = ft.Container(
-            width=section_width,
-            padding=ft.padding.symmetric(horizontal=28, vertical=26),
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment.TOP_RIGHT,
-                end=ft.Alignment.BOTTOM_LEFT,
-                colors=["#4F8FEA", "#2A5EB8"],
-            ),
-            content=ft.Column(
-                spacing=18,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                controls=[
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            self.help_button,
-                            ft.Column(
-                                spacing=4,
-                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                controls=[
-                                    ft.Text(
-                                        "הגדרת משתמשים",
-                                        size=28,
-                                        weight=ft.FontWeight.W_700,
-                                        color="#FFFFFF",
-                                        font_family="Poppins",
-                                        text_align=ft.TextAlign.CENTER,
-                                    ),
-                                    ft.Text(
-                                        "salesforce",
-                                        size=20,
-                                        weight=ft.FontWeight.W_600,
-                                        color="#DCE8FF",
-                                        font_family="Poppins",
-                                        text_align=ft.TextAlign.CENTER,
-                                    ),
-                                ],
-                            ),
-                            self.settings_button,
-                        ],
-                    ),
-                    ft.Text(
-                        "הרצת אוטומציה לקבצי Excel עם שליטה על מצב, עצירה והגדרות משתמש.",
-                        size=14,
-                        color="#E2ECFF",
-                        text_align=ft.TextAlign.RIGHT,
-                    ),
-                ],
-            ),
+        # --- Navigation Controls ---
+        self.nav_main = self._create_nav_button("Main Execution", "main", ft.Icons.PLAY_ARROW_ROUNDED)
+        self.nav_logs = self._create_nav_button("Live Logs", "logs", ft.Icons.TERMINAL_ROUNDED)
+        self.nav_settings = self._create_nav_button("Settings", "settings", ft.Icons.SETTINGS_ROUNDED)
+
+    def _create_nav_button(self, text, nav_id, icon):
+        return ft.Container(
+            content=ft.Row([
+                ft.Icon(icon, color="#de2952" if self.current_nav == nav_id else "#828383"),
+                ft.Text(text, color="#de2952" if self.current_nav == nav_id else "#000000", weight=ft.FontWeight.W_600)
+            ]),
+            padding=15,
+            border_radius=8,
+            bgcolor="#f4f4f4" if self.current_nav == nav_id else ft.Colors.TRANSPARENT,
+            ink=True,
+            on_click=lambda e: self._on_nav_click(nav_id)
         )
 
-        file_section = ft.Container(
-            width=section_width,
-            border_radius=18,
-            bgcolor="#FFFFFF",
-            padding=22,
-            content=ft.Column(
-                spacing=14,
-                controls=[
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        controls=[
-                            ft.Text(
-                                "קובץ עבודה",
-                                size=18,
-                                weight=ft.FontWeight.W_700,
-                                color="#1A2A42",
-                            ),
-                            ft.Icon(ft.Icons.DESCRIPTION_OUTLINED, color="#4F8FEA"),
-                        ],
-                    ),
-                    ft.Container(
-                        border=ft.border.all(1, "#D8E5FB"),
-                        border_radius=14,
-                        padding=ft.padding.symmetric(horizontal=16, vertical=14),
-                        bgcolor="#F8FBFF",
-                        content=self.file_name_text,
-                    ),
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.END,
-                        controls=[self.browse_button],
-                    ),
-                ],
-            ),
-        )
+    def _update_nav_styles(self):
+        navs = {
+            "main": self.nav_main,
+            "logs": self.nav_logs,
+            "settings": self.nav_settings
+        }
+        for nav_id, container in navs.items():
+            is_active = (self.current_nav == nav_id)
+            container.bgcolor = "#f4f4f4" if is_active else ft.Colors.TRANSPARENT
+            row = container.content
+            row.controls[0].color = "#de2952" if is_active else "#828383"
+            row.controls[1].color = "#de2952" if is_active else "#000000"
 
-        actions_section = ft.Container(
-            width=section_width,
-            border_radius=18,
-            bgcolor="#2F6FD5",
-            padding=22,
-            content=ft.Column(
-                spacing=16,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Text(
-                        "ניהול הרצה",
-                        size=18,
-                        weight=ft.FontWeight.W_700,
-                        color="#FFFFFF",
-                    ),
-                    ft.Text(
-                        "הפעלה ועצירה בטוחה של תהליך האוטומציה.",
-                        size=13,
-                        color="#DCE8FF",
-                        text_align=ft.TextAlign.CENTER,
-                    ),
-                    self.progress_ring,
-                    self.progress_label,
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        controls=[self.run_button, self.stop_button],
-                    ),
-                ],
-            ),
-        )
+    def _on_nav_click(self, nav_id):
+        if nav_id == "settings" and self._on_settings_click:
+            self._on_settings_click(None)
+        else:
+            self.current_nav = nav_id
+            self._update_nav_styles()
+            self._switch_view()
 
-        status_section = ft.Container(
-            width=section_width,
-            border_radius=18,
-            bgcolor="#163C75",
-            padding=18,
-            content=ft.Column(
-                spacing=8,
-                controls=[
-                    ft.Text(
-                        "סטטוס",
-                        size=16,
-                        weight=ft.FontWeight.W_700,
-                        color="#FFFFFF",
-                        text_align=ft.TextAlign.RIGHT,
-                    ),
-                    self.status_text,
-                ],
-            ),
-        )
+    def show_settings_view(self, settings_container):
+        self.settings_container = settings_container
+        self.current_nav = "settings"
+        self._update_nav_styles()
+        self._switch_view()
 
-        content = ft.SafeArea(
+    def switch_to_main(self):
+        self.current_nav = "main"
+        self._update_nav_styles()
+        self._switch_view()
+
+    def _build_main_execution_view(self):
+        status_card = ft.Card(
+            elevation=2,
+            bgcolor="#ffffff",
             content=ft.Container(
-                expand=True,
-                padding=ft.padding.only(left=22, right=22, top=22, bottom=28),
-                content=ft.Column(
-                    expand=True,
-                    scroll=ft.ScrollMode.AUTO,
-                    spacing=18,
-                    controls=[header, file_section, actions_section, status_section],
-                ),
+                padding=20,
+                content=ft.Row(
+                    controls=[self.status_text, self.help_button],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                )
             )
         )
 
-        self.page.add(content)
+        file_card = ft.Card(
+            elevation=2,
+            bgcolor="#ffffff",
+            content=ft.Container(
+                padding=20,
+                content=ft.Column(
+                    spacing=15,
+                    controls=[
+                        ft.Container(
+                            border=ft.border.all(1, "#828383"),
+                            border_radius=8,
+                            padding=20,
+                            content=ft.Column([
+                                ft.Row([self.browse_button], alignment=ft.MainAxisAlignment.CENTER),
+                                ft.Row([self.file_name_text], alignment=ft.MainAxisAlignment.CENTER)
+                            ], spacing=10)
+                        )
+                    ]
+                )
+            )
+        )
+
+        action_card = ft.Card(
+            elevation=2,
+            bgcolor="#ffffff",
+            content=ft.Container(
+                padding=20,
+                content=ft.Column(
+                    spacing=15,
+                    controls=[
+                        ft.Row([self.run_button, self.stop_button], spacing=15),
+                        ft.Container(content=self.progress_bar, padding=ft.padding.only(top=10))
+                    ]
+                )
+            )
+        )
+
+        return ft.Container(
+            padding=20,
+            expand=True,
+            content=ft.Column(
+                spacing=15,
+                controls=[status_card, file_card, action_card]
+            )
+        )
+
+    def _build_live_logs_view(self):
+        return ft.Container(
+            padding=20,
+            expand=True,
+            bgcolor="#000000",
+            content=self.logs_list
+        )
+
+    def _render(self) -> None:
+        self.main_view_container = self._build_main_execution_view()
+        self.logs_view_container = self._build_live_logs_view()
+        
+        self.content_area = ft.Container(
+            expand=True,
+            content=self.main_view_container
+        )
+
+        self.sidebar = ft.Container(
+            width=250,
+            bgcolor="#ffffff",
+            border=ft.border.only(left=ft.BorderSide(1, "#e0e0e0")),
+            padding=20,
+            content=ft.Column(
+                spacing=10,
+                controls=[
+                    ft.Text("Salesforce Automation", size=18, weight=ft.FontWeight.BOLD, color="#000000"),
+                    ft.Divider(color="#828383"),
+                    self.nav_main,
+                    self.nav_settings,
+                    self.nav_logs
+                ]
+            )
+        )
+
+        main_row = ft.Row(
+            expand=True,
+            controls=[
+                self.content_area,
+                self.sidebar
+            ]
+        )
+
+        self.page.add(main_row)
         self.page.update()
 
-    def _primary_button_style(self) -> ft.ButtonStyle:
-        return ft.ButtonStyle(
-            color="#1D4F9E",
-            bgcolor="#FFFFFF",
-            shape=ft.RoundedRectangleBorder(radius=14),
-            overlay_color="#E6F0FF",
-        )
+    def _switch_view(self):
+        if self.current_nav == "main":
+            self.content_area.content = self.main_view_container
+        elif self.current_nav == "logs":
+            self.content_area.content = self.logs_view_container
+        elif self.current_nav == "settings":
+            if self.settings_container:
+                self.content_area.content = self.settings_container
+            else:
+                self.content_area.content = ft.Text("Loading Settings...")
+        
+        self._safe_update()
 
     def bind_actions(
         self,
@@ -296,7 +277,7 @@ class MainView:
         self._on_browse = on_browse
         self.run_button.on_click = on_run
         self.stop_button.on_click = on_stop
-        self.settings_button.on_click = on_settings
+        self._on_settings_click = on_settings
         self.help_button.on_click = on_help
         self.browse_button.on_click = self.pick_file
 
@@ -327,23 +308,33 @@ class MainView:
         self._safe_update()
 
     def set_status(self, text: str) -> None:
-        self.status_text.value = text or ""
+        if not text:
+            return
+            
+        self.status_text.value = text
+        
+        if "error" in text.lower() or "שגיאה" in text:
+            self.status_text.color = "#f27894"
+        else:
+            self.status_text.color = "#828383"
+            
+        log_text = ft.Text(text, color="#ffffff", size=13, font_family="Consolas")
+        self.logs_list.controls.append(log_text)
+        
         self._safe_update()
 
     def set_progress(self, value: float) -> None:
-        clamped = max(0.0, min(1.0, float(value)))
-        self.progress_ring.value = clamped
-        self.progress_label.value = f"{int(clamped * 100)}%"
-        self._safe_update()
+        self.progress_bar.update_progress(value)
 
     def set_running(self, is_running: bool) -> None:
         self.run_button.visible = not is_running
         self.stop_button.visible = is_running
-        self.progress_ring.visible = is_running
-        self.progress_label.visible = is_running
+        self.progress_bar.visible = is_running
+        
         if is_running:
             self.stop_button.disabled = False
             self.set_progress(0)
+            
         self._safe_update()
 
     def disable_stop(self) -> None:
@@ -362,9 +353,9 @@ class MainView:
             modal=True,
             title=ft.Row(
                 spacing=10,
-                controls=[ft.Icon(icon, color="#2F6FD5"), ft.Text(title)],
+                controls=[ft.Icon(icon, color="#de2952"), ft.Text(title, color="#000000")],
             ),
-            content=ft.Text(message, selectable=True),
+            content=ft.Text(message, selectable=True, color="#000000"),
             actions=[ft.TextButton("סגור", on_click=lambda _: self._close_dialog(dialog))],
             actions_alignment=ft.MainAxisAlignment.END,
         )
@@ -383,4 +374,5 @@ class MainView:
 
     def _safe_update(self) -> None:
         with self._lock:
-            self.page.update()
+            if self.page:
+                self.page.update()
