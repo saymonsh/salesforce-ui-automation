@@ -14,15 +14,31 @@ class SalesforceApiClient:
         var endpoint = arguments[1];
         
         try {
-            var fwuid = null;
+            var fwuid = "";
+            var auraToken = "";
+            
+            if (window.auraConfig) {
+                if (window.auraConfig.context) {
+                    fwuid = window.auraConfig.context.fwuid || "";
+                }
+                auraToken = window.auraConfig.token || "";
+            }
+            
             if (typeof $A !== 'undefined') {
-                fwuid = $A.getContext().get('fwuid');
+                var ctx = typeof $A.getContext === 'function' ? $A.getContext() : null;
+                if (ctx && ctx.fwuid) {
+                    fwuid = fwuid || ctx.fwuid;
+                }
+                try {
+                    var t = $A.get("$A.token");
+                    if (t) auraToken = auraToken || t;
+                } catch(e) {}
             }
             
             var bodyData = new URLSearchParams();
             bodyData.append('message', JSON.stringify(payload));
-            if (fwuid) {
-                bodyData.append('aura.token', fwuid);
+            if (auraToken) {
+                bodyData.append('aura.token', auraToken);
             }
             
             var context = {"mode":"PROD","app":"one:one","pathPrefix":"","fwuid":fwuid};
