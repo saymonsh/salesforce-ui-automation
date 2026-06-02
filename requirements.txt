@@ -4,3 +4,4 @@ pyotp
 pyperclip
 openpyxl
 flet
+tzdata

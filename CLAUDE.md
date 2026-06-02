@@ -38,9 +38,12 @@ Three layers, strictly separated:
 - `processors/` — one class per process `TYPE`, all extending `BaseProcessor`:
   - `LoginProcessor` (TYPE=1): per row, dispatches on the Excel `סוג` (type) column (values 1–6) to combinations of `perform_search` / `create_actions` / `create_report`.
   - `CandidateProcessor` (TYPE=2): adds candidates to a service schedule by ID number.
+  - `AttendanceProcessor` (TYPE=3): fills an attendance matrix via the **Aura API** instead of per-row UI clicking.
 - `BaseProcessor` owns the shared driver lifecycle (`_setup_driver`), the full login+TOTP flow (`_login`), Excel reading (`_read_excel`), and the cooperative stop mechanism.
 - `actions.py` — the low-level Selenium step functions used by `LoginProcessor`.
 - `selectors.py` — all XPath selectors, centralized.
+- `api_client.py` — `SalesforceApiClient` posts Aura RPC requests via `driver.execute_async_script` (`fetch` from the page context, reusing the logged-in session/token) and strips the Salesforce JSON-hijack prefix (`*/`, `while(1);`) from responses. Used by TYPE 3.
+- `excel_parser.py` — `ExcelParser.parse_attendance_matrix` reads the TYPE 3 grid (A1 = `HH:MM|HH:MM`, dates across row 1, IDs down column A, any non-empty cell = present).
 - `driver_manager.py` — launches chromedriver subprocess, creates a `webdriver.Remote` against `127.0.0.1:9515`, strips proxy env vars, and force-terminates both driver and subprocess on close.
 
 **`src/core/` — config, constants, utils, exceptions.**
@@ -65,4 +68,4 @@ Sheets are read with pandas/openpyxl. Column headers are **Hebrew** and accessed
 
 - `1` → `LoginProcessor` (requires Excel path, Activity NUMBER, DESCRIPTION)
 - `2` → `CandidateProcessor` (requires Excel path)
-- `3` → no file required (see `worker_manager.start` guard), but no processor is wired for it — it currently errors as an invalid process.
+- `3` → `AttendanceProcessor` (no pre-selected file required in the same way — see the `worker_manager.start` guard): fills an attendance matrix via the Aura API.

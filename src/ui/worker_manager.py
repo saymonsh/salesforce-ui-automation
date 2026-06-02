@@ -1,6 +1,6 @@
 import threading
 
-from src.automation.processors.candidate_processor import CandidateProcessor
+from src.automation.processors.attendance_processor import AttendanceProcessor
 from src.automation.processors.login_processor import LoginProcessor
 from src.core.config import config_instance as parm
 from src.ui.worker import AutomationWorker
@@ -25,16 +25,20 @@ class WorkerManager:
             self.main_view.show_alert("שגיאת הגדרות", error_msg, "warning")
             return False
 
-        if parm.TYPE in [1, 2]:
-            self._set_running_ui(True)
-
         if parm.TYPE == 1:
             self.worker = AutomationWorker(LoginProcessor, uploaded_file_path)
         elif parm.TYPE == 2:
             self.worker = AutomationWorker(CandidateProcessor, uploaded_file_path)
+        elif parm.TYPE == 3:
+            print("Processing attendance matrix")
+            self.worker = AutomationWorker(AttendanceProcessor, uploaded_file_path)
         else:
             self.main_view.show_alert("שגיאה", f"{parm.TYPE} איננו תהליך חוקי", "critical")
             return False
+
+        # Switch to running-state UI (stop button + progress bar) now that a valid
+        # worker exists — applies to all process types, including TYPE 3.
+        self._set_running_ui(True)
 
         return True
 
