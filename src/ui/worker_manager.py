@@ -32,12 +32,9 @@ class WorkerManager:
             self._show_alert(parent_window, "שגיאת הגדרות", error_msg, QMessageBox.Warning)
             return False
 
-        if parm.TYPE in [1, 2]:
-            self._set_running_ui(True)
-
         # Create Worker and Thread
         self.request_thread = QThread()
-        
+
         if parm.TYPE == 1:
             print("Login in progress")
             self.worker = AutomationWorker(LoginProcessor, uploaded_file_path)
@@ -50,6 +47,10 @@ class WorkerManager:
         else:
             self._show_alert(parent_window, "שגיאה", f"{parm.TYPE} איננו תהליך חוקי", QMessageBox.Critical)
             return False
+
+        # Switch to running-state UI (stop button + progress bar) now that a valid
+        # worker exists — applies to all process types, including TYPE 3.
+        self._set_running_ui(True)
 
         self.worker.moveToThread(self.request_thread)
 
