@@ -49,13 +49,13 @@ class AutomationWorker(QObject):
             
             # Execute the process
             # Assuming process() is blocking and runs the automation
-            processor.process(*self.args, **self.kwargs)
+            result_msg = processor.process(*self.args, **self.kwargs)
             
             if processor.is_stopped:
                 # "The action was stopped by the user"
                 self.signals.finished.emit(True, "Execution Stopped")
             else:
-                self.signals.finished.emit(True, "Done")
+                self.signals.finished.emit(True, result_msg if isinstance(result_msg, str) else "Done")
 
         except Exception as e:
             # In case of unhandled exception in the processor

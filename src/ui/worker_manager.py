@@ -4,6 +4,7 @@ from src.ui.worker import AutomationWorker
 from src.core.config import config_instance as parm
 from src.automation.processors.login_processor import LoginProcessor
 from src.automation.processors.candidate_processor import CandidateProcessor
+from src.automation.processors.attendance_processor import AttendanceProcessor
 
 
 class WorkerManager:
@@ -31,21 +32,25 @@ class WorkerManager:
             self._show_alert(parent_window, "שגיאת הגדרות", error_msg, QMessageBox.Warning)
             return False
 
-        if parm.TYPE in [1, 2]:
-            self._set_running_ui(True)
-
         # Create Worker and Thread
         self.request_thread = QThread()
-        
+
         if parm.TYPE == 1:
             print("Login in progress")
             self.worker = AutomationWorker(LoginProcessor, uploaded_file_path)
         elif parm.TYPE == 2:
             print("Adding candidates")
             self.worker = AutomationWorker(CandidateProcessor, uploaded_file_path)
+        elif parm.TYPE == 3:
+            print("Processing attendance matrix")
+            self.worker = AutomationWorker(AttendanceProcessor, uploaded_file_path)
         else:
             self._show_alert(parent_window, "שגיאה", f"{parm.TYPE} איננו תהליך חוקי", QMessageBox.Critical)
             return False
+
+        # Switch to running-state UI (stop button + progress bar) now that a valid
+        # worker exists — applies to all process types, including TYPE 3.
+        self._set_running_ui(True)
 
         self.worker.moveToThread(self.request_thread)
 

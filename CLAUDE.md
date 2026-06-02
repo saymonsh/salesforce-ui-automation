@@ -4,64 +4,107 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Desktop GUI app that automates the Salesforce Lightning UI for the Israeli Welfare Ministry (`welfareministry.lightning.force.com`). It drives a real Chrome browser via Selenium to perform bulk actions (login + create activities/reports, or add candidates) row-by-row from an Excel file. Much of the UI/business logic is Hebrew; Excel column names and Salesforce element text are Hebrew strings (e.g. `'תעודות זהות'`, `'סוג'`, `'תאריך'`).
+Windows desktop app that automates bulk actions in the Israeli Welfare Ministry's
+Salesforce instance (`welfareministry.lightning.force.com`) from Excel input.
+A PySide6/pyvisual GUI loads an Excel file and config, then runs one of three
+automation processes against Salesforce (auto-login with TOTP/MFA included).
+
+The codebase was refactored in 2026. Much of the UI/Salesforce interaction logic
+(XPath selectors, `sleep` timings) was extracted **verbatim** from the original
+code and is intentionally frozen — see Constraints below.
 
 ## Commands
 
-```powershell
-# Setup (Windows / PowerShell)
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-
-# Run the app (must run as a module from the project root)
+Run the app (from project root, with `config.ini` present):
+```bash
 python -m src.main
 ```
 
-- There are **no tests, linters, or build steps** in this repo.
-- Requires `config.ini` at the project root (copy from `config.ini.example`). The app shows a Windows MessageBox and exits if it's missing.
+Setup:
+```bash
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-## Runtime prerequisites (hard-coded, environment-specific)
+There is no test suite, linter, or build step configured.
 
-- **ChromeDriver must exist at `C:\chromedriver\chromedriver.exe`** and match the installed Chrome version. The path is hard-coded in `src/automation/driver_manager.py`; chromedriver is launched as a subprocess on **port 9515** and Selenium connects to it as a `webdriver.Remote` at `http://127.0.0.1:9515`.
-- Windows-only (uses `ctypes.windll` for error dialogs).
+## Prerequisites / Runtime Environment
+
+- Windows (uses `ctypes.windll` for error dialogs).
+- Python 3.10+.
+- Google Chrome installed, plus a matching `chromedriver.exe` at the hardcoded
+  path `C:\chromedriver\chromedriver.exe` (see `driver_manager.py`). chromedriver
+  is launched as a subprocess on port 9515 and Selenium connects via
+  `webdriver.Remote` to `http://127.0.0.1:9515`.
+- `config.ini` at the project root (create from `config.ini.example`). Loaded by a
+  singleton `Config` (`src/core/config.py`); contains Salesforce credentials and
+  `SECRET_KEY` (the TOTP seed for MFA). This file is gitignored — never commit it.
 
 ## Architecture
 
-Three layers under `src/`, wired together in `src/main.py`:
+### Config-driven process selection (`TYPE`)
+The `[Salesforce] TYPE` value in `config.ini` selects which processor runs. This is
+the central switch the whole app pivots on:
+- **TYPE 1** — `LoginProcessor`: login + per-row Selenium UI actions (search, create
+  actions, create reports). The row's `סוג` (kind) column further branches into 6
+  sub-flows.
+- **TYPE 2** — `CandidateProcessor`: login + bulk-add candidates by ID via the UI.
+- **TYPE 3** — `AttendanceProcessor`: login + attendance matrix via the **Aura API**
+  (no per-row UI clicking). TYPE 3 does not require a pre-selected file in the same
+  way (see `WorkerManager.start`).
 
-1. **`ui/`** — PySide6/pyvisual desktop app (MVC).
-   - `main_window.py` / `settings_window.py` are pure **View** (build widgets only).
-   - `controller.py` is a thin coordinator delegating to `SettingsController` and `WorkerManager`.
-   - `worker_manager.py` + `worker.py` run automation on a **separate `QThread`** so the GUI never blocks. `AutomationWorker` instantiates a processor class and calls `.process()`; it communicates back via Qt `WorkerSignals` (`finished`, `progress`, `status`, `error`).
+`Config.validate()` enforces different required fields per TYPE.
 
-2. **`automation/`** — Selenium engine.
-   - `driver_manager.py` — chromedriver subprocess + driver creation (disables notifications/popups/cookies, clears proxy env vars).
-   - `processors/` — one class per run **TYPE**, all extending `BaseProcessor` (ABC). `BaseProcessor` owns the shared driver lifecycle (`_setup_driver`, `_cleanup_driver`, `_force_close_driver`), the full login+TOTP flow (`_login`), and Excel reading (`_read_excel`).
-     - `LoginProcessor` (config TYPE=1): per Excel row, runs `perform_search` → `create_actions` / `create_report` depending on the row's `'סוג'` value (1–6).
-     - `CandidateProcessor` (config TYPE=2): adds candidates by ID number, using clipboard paste (`pyperclip`) into a search box.
-   - `actions.py` — the search/create-action/create-report Selenium step sequences used by `LoginProcessor`.
-   - `selectors.py` — **all** XPath selectors live here as constants.
+### Threading & UI flow
+The GUI must never block, so automation runs on a `QThread`:
 
-3. **`core/`** — cross-cutting.
-   - `config.py` — `Config` **singleton** (`config_instance`) reading `config.ini`. Exposes `USER_NAME`, `PASSWORD`, `SECRET_KEY`, `URL`, `TYPE` (int), `ACT_DESCRIPTION`, `ACT_NU`, `UPLOADED_FILE_PATH`. `validate()` does TYPE-aware checks; `update_config()` writes back to the file and reloads.
-   - `constants.py` — asset paths (fonts/icons) and UI colors.
-   - `utils.py` — `verify_running` / `smart_sleep` (the stop mechanism, see below).
-   - `exceptions.py` — `StopException`.
+```
+main.py → Controller → WorkerManager → AutomationWorker(QThread) → <Processor>
+```
 
-### config TYPE drives behavior
+- `Controller` (`src/ui/controller.py`) is a thin coordinator. It delegates to
+  `SettingsController` (settings window) and `WorkerManager` (thread lifecycle).
+- `WorkerManager` (`src/ui/worker_manager.py`) validates config, picks the processor
+  class by TYPE, creates the worker, moves it to a `QThread`, and wires signals.
+- `AutomationWorker` (`src/ui/worker.py`) instantiates the processor with a
+  `WorkerSignals` object and calls `processor.process(...)`. Processors emit
+  `progress`/`status`/`finished` signals back to the controller's Qt slots.
 
-`config.ini` `[Salesforce] TYPE` selects which processor runs (set via the Settings window). `1` = Login & Actions, `2` = Add Candidates. `WorkerManager.start()` maps TYPE → processor class and validates required fields per TYPE.
+### Processors (`src/automation/processors/`)
+All inherit `BaseProcessor`, which owns the shared driver lifecycle
+(`_setup_driver` / `_cleanup_driver` / `_force_close_driver`), the Salesforce
+`_login()` sequence (credentials + `pyotp` TOTP), and `_read_excel()`. Each concrete
+processor implements `process(uploaded_file_path)`.
 
-### Responsive stop mechanism
+### Two automation strategies
+- **UI-driven (TYPE 1, 2):** Selenium clicks through the Lightning UI using XPaths
+  from `src/automation/selectors.py`. Reusable steps live in `src/automation/actions.py`.
+- **API-driven (TYPE 3):** `SalesforceApiClient` (`src/automation/api_client.py`)
+  posts Aura RPC requests via `driver.execute_async_script` (`fetch` from the page
+  context, reusing the logged-in session/token). It strips the Salesforce JSON-hijack
+  prefix (`*/` / `while(1);`) from responses. `ExcelParser.parse_attendance_matrix`
+  reads a grid (A1 = `HH:MM|HH:MM`, dates across row 1, IDs down column A, any
+  non-empty cell = present).
 
-Stop must interrupt long Selenium waits. The pattern, used pervasively, is:
-- The processor holds an `is_stopped` flag; the UI's Stop button calls `worker.stop()` → `processor.stop()`, which sets the flag **and** force-quits the driver to break any blocking wait.
-- Automation code calls `verify_running(lambda: self.is_stopped)` between steps and uses `smart_sleep(seconds, check)` instead of `time.sleep` — both raise `StopException` when stopped. **Use these, never raw `time.sleep`, in automation paths.**
+### Responsive stop mechanism (important)
+Stopping mid-run is a core feature. The pattern, used throughout actions/processors:
+- `verify_running(lambda: self.is_stopped)` is called between every Selenium step and
+  raises `StopException` if the user pressed stop.
+- `smart_sleep(duration, check_stop)` (`src/core/utils.py`) sleeps in small intervals,
+  re-checking the stop flag — use it instead of `time.sleep` so long waits remain
+  interruptible.
+- On stop, processors also call `_force_close_driver()` to break any blocking Selenium
+  wait that isn't between checks.
 
-## Important constraints
+When adding automation steps, thread the `check_stop` callback through and call
+`verify_running` / `smart_sleep` so the stop button keeps working.
 
-- **Do not modify XPath selectors in `selectors.py`** unless the Salesforce DOM actually changed — they are matched verbatim to the live UI. The login flow XPaths in `BaseProcessor._login` are equally load-bearing.
-- **Do not shorten waits** (`smart_sleep` durations, `implicitly_wait(30)`, `WebDriverWait(..., 30)`). They are tuned for Salesforce Lightning's load timing and are critical for stability.
-- `config.ini` is gitignored and contains real credentials + a TOTP `SECRET_KEY` (used by `pyotp` for MFA). Never commit it.
-- `perform_search` in `actions.py` writes `debug_search_error.png` / `debug_page_source.html` to the project root on failure — these are debug artifacts.
+## Constraints (from README and code comments)
+
+- **Do not modify XPath selectors** in `selectors.py` unless Salesforce's DOM
+  actually changed. They are extracted verbatim and small changes silently break runs.
+- **Do not shorten wait/sleep timings.** They are tuned for Salesforce Lightning load
+  behavior and are load-bearing for stability.
+- Excel column access uses **Hebrew header names** (e.g. `row['תעודות זהות']`,
+  `row['סוג']`, `row['תאריך']`). Many user-facing status strings are Hebrew too.

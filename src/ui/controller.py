@@ -99,9 +99,14 @@ class Controller:
         self.worker_manager.set_idle_ui()
 
         if not success:
-            self.main_ui["Text_mainStatus"].text = f"Error: {message}"
+            self.main_ui["Text_mainStatus"].text = "אירעה שגיאה"
+            self._show_alert(self.main_window, "שגיאה", message, QMessageBox.Critical)
         else:
-             self.main_ui["Text_mainStatus"].text = message
+            if message and message not in ["Done", "Execution Stopped", "הפעולה הופסקה על ידי המשתמש."]:
+                self.main_ui["Text_mainStatus"].text = "התהליך הושלם"
+                self._show_alert(self.main_window, "דוח סיכום פעולה", message, QMessageBox.Information)
+            else:
+                self.main_ui["Text_mainStatus"].text = message
 
         # Cleanup
         self.worker_manager.cleanup()

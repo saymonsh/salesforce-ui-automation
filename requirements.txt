@@ -4,3 +4,4 @@ pyotp
 pyvisual
 pyperclip
 openpyxl
+tzdata
