@@ -1,11 +1,14 @@
 """Unified input layer (issue #15) — the seam between *where* the data comes
 from and the processors that consume it.
 
-Today the only source is an Excel file on disk, but the processors no longer
-read it directly: they ask a data source for already-normalized records. This
-is the foundation the rest of epic #14 builds on — a future in-app manual-entry
-grid (issue #16) or smart-paste (issue #17) plugs in here by implementing the
-same interface, with no change to the processors.
+The processors never read an input medium directly: they ask a data source for
+already-normalized records. Input now always originates in the in-app entry grid
+(epic #14 — issue #16 typed it, #17 added smart-paste, #18 made Excel an *import
+path into the grid*), so the only live implementations are the in-memory ones
+below. The Excel-file-as-direct-source classes were removed once Excel became an
+import path: a chosen file is read into the editable grid (see
+``src/automation/excel_import.py``) and the grid then yields one of these
+in-memory sources — the processors still can't tell where the data came from.
 
 Two record shapes, matching the two processor families:
 
@@ -16,14 +19,10 @@ Two record shapes, matching the two processor families:
     ``row['סוג'] == 1`` behave exactly as before.
 
   * **matrix** — TYPE 3 (AttendanceProcessor): the attendance-matrix dict
-    produced by :func:`ExcelParser.parse_attendance_matrix`
-    (``start_time`` / ``end_time`` / ``dates`` / ``participants``).
+    (``start_time`` / ``end_time`` / ``dates`` / ``participants``), the same
+    shape :func:`ExcelParser.parse_attendance_matrix` produces.
 """
 from abc import ABC, abstractmethod
-
-import pandas as pd
-
-from src.automation.excel_parser import ExcelParser
 
 
 class TabularSource(ABC):
@@ -42,35 +41,9 @@ class MatrixSource(ABC):
         """Return the attendance-matrix dict."""
 
 
-class ExcelTabularSource(TabularSource):
-    """Reads tabular input (TYPE 1 / 2) from an Excel file."""
-
-    def __init__(self, file_path):
-        self.file_path = file_path
-
-    def rows(self):
-        # ``to_dict('records')`` preserves per-column dtypes and the Hebrew
-        # keys, so downstream access (row['תעודות זהות'], row['סוג'] == 1) is
-        # identical to the previous df.iterrows() path — just without handing a
-        # pandas object to the processors.
-        df = pd.read_excel(self.file_path)
-        return df.to_dict("records")
-
-
-class ExcelMatrixSource(MatrixSource):
-    """Reads the TYPE 3 attendance matrix from an Excel file."""
-
-    def __init__(self, file_path):
-        self.file_path = file_path
-
-    def matrix(self):
-        return ExcelParser.parse_attendance_matrix(self.file_path)
-
-
 class MemoryTabularSource(TabularSource):
     """Tabular input (TYPE 1 / 2) held in memory — the in-app manual-entry grid
-    (issue #16). Built by the UI from the grid's rows; the processors can't tell
-    it apart from :class:`ExcelTabularSource`."""
+    (issue #16). Built by the UI from the grid's rows."""
 
     def __init__(self, rows):
         self._rows = rows

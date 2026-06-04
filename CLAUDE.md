@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Windows desktop app that automates the Israeli Welfare Ministry's Salesforce Lightning UI (`welfareministry.lightning.force.com`) to perform bulk actions driven by an Excel file — one Salesforce operation per row. It logs in (username/password + TOTP MFA), then iterates rows to create activities/reports or add candidates to a service schedule. The UI is in Hebrew (RTL).
+A Windows desktop app that automates the Israeli Welfare Ministry's Salesforce Lightning UI (`welfareministry.lightning.force.com`) to perform bulk actions — one Salesforce operation per row, entered in the app's data-entry grid (an existing Excel file can be imported into the grid). It logs in (username/password + TOTP MFA), then iterates rows to create activities/reports or add candidates to a service schedule. The UI is in Hebrew (RTL).
 
 ## Commands
 
@@ -43,12 +43,13 @@ Three layers, strictly separated:
 - `actions.py` — the low-level Selenium step functions used by `LoginProcessor`.
 - `selectors.py` — all XPath selectors, centralized.
 - `api_client.py` — `SalesforceApiClient` posts Aura RPC requests via `driver.execute_async_script` (`fetch` from the page context, reusing the logged-in session/token) and strips the Salesforce JSON-hijack prefix (`*/`, `while(1);`) from responses. Used by TYPE 3.
-- `data_source.py` — the input seam (epic #14, issue #15): abstract `TabularSource` (TYPE 1/2 → list of Hebrew-keyed row dicts) and `MatrixSource` (TYPE 3 → attendance dict), with `ExcelTabularSource` / `ExcelMatrixSource` as today's only implementations. Processors depend on these interfaces, **not** on pandas/`ExcelParser` directly, so a future manual-entry grid plugs in here unchanged.
-- `excel_parser.py` — `ExcelParser.parse_attendance_matrix` reads the TYPE 3 grid (A1 = `HH:MM|HH:MM`, dates across row 1, IDs down column A, any non-empty cell = present); reached via `ExcelMatrixSource`.
+- `data_source.py` — the input seam (epic #14, issue #15): abstract `TabularSource` (TYPE 1/2 → list of Hebrew-keyed row dicts) and `MatrixSource` (TYPE 3 → attendance dict). The only implementations are the in-memory `MemoryTabularSource` / `MemoryMatrixSource`, built by the entry grid — input always comes from the grid now (epic #14 done, #18). Processors depend on these interfaces, **not** on pandas/`ExcelParser` directly.
+- `excel_import.py` — reads an existing Excel file *into* the grid's editable shape (`read_tabular` → grid-keyed string rows; `read_matrix` → delegates to `ExcelParser`). This is the only remaining Excel-read path: a chosen file is imported into the grid, then run as a `Memory*Source`. There is no "run a file directly" mode.
+- `excel_parser.py` — `ExcelParser.parse_attendance_matrix` reads the TYPE 3 grid (A1 = `HH:MM|HH:MM`, dates across row 1, IDs down column A, any non-empty cell = present); reached via `excel_import.read_matrix`.
 - `driver_manager.py` — launches chromedriver subprocess, creates a `webdriver.Remote` against `127.0.0.1:9515`, strips proxy env vars, and force-terminates both driver and subprocess on close.
 
 **`src/core/` — config, constants, utils, exceptions.**
-- `config.py` — singleton `Config` reading `config.ini`; `config_instance` is the global imported everywhere as `parm`. `validate()` returns context-aware missing-field lists keyed off `TYPE`.
+- `config.py` — singleton `Config` reading `config.ini`; `config_instance` is the global imported everywhere as `parm`. `validate()` returns context-aware missing-field lists keyed off `TYPE` (credentials + URL always; Activity NUMBER/DESCRIPTION for TYPE 1). No input-file path is validated — data comes from the grid.
 
 ## Critical constraints (do not "clean up" these)
 
@@ -61,12 +62,14 @@ Three layers, strictly separated:
 
   These poll a `threading.Event` and raise `StopRequestedException` so the user's Stop button takes effect mid-flight (including during long waits). Processors thread the stop check through as `check_stop_func=lambda: self.is_stopped`.
 
-## Excel input
+## Input data
 
-Sheets are read with pandas/openpyxl. Column headers are **Hebrew** and accessed by literal string: `row['תעודות זהות']` (ID number), `row['סוג']` (type), `row['תאריך']` (date). The `סוג` value drives which automation steps run in `LoginProcessor`.
+Input is entered in the in-app grid (`src/ui/data_grid.py`); an existing Excel file can be **imported into** the grid (`excel_import.py`), never run directly. The grid is drafted to `draft.json` (issue #18) and restored on launch. Regardless of medium, rows reach the processors as Hebrew-keyed dicts accessed by literal string: `row['תעודות זהות']` (ID number), `row['סוג']` (type), `row['תאריך']` (date). The `סוג` value drives which automation steps run in `LoginProcessor`.
 
 ## Process types (`config.TYPE`)
 
-- `1` → `LoginProcessor` (requires Excel path, Activity NUMBER, DESCRIPTION)
-- `2` → `CandidateProcessor` (requires Excel path)
-- `3` → `AttendanceProcessor` (no pre-selected file required in the same way — see the `worker_manager.start` guard): fills an attendance matrix via the Aura API.
+Every TYPE takes its input from the entry grid (`worker_manager.start(source)` guards on a non-empty in-memory source).
+
+- `1` → `LoginProcessor` (also requires Activity NUMBER + DESCRIPTION in settings)
+- `2` → `CandidateProcessor`
+- `3` → `AttendanceProcessor`: fills an attendance matrix via the Aura API.

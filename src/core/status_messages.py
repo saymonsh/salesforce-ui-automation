@@ -26,9 +26,10 @@ class Status:
     """Status-channel copy. Constants are static; methods interpolate."""
 
     # --- shared across all process types ------------------------------------
-    NO_FILE = "בחר קובץ Excel כדי להתחיל"
-    FILE_EMPTY = "הקובץ ריק — אין שורות לעיבוד"
-    # Manual-entry grid (issue #16): the input comes from the in-app table.
+    # Input is the in-app entry grid (epic #14). FILE_EMPTY still applies: a grid
+    # source can yield zero rows just like an empty file, and the empty-source
+    # guard in BaseProcessor reports it.
+    FILE_EMPTY = "אין שורות לעיבוד"
     MANUAL_EMPTY = "הזן נתונים בטבלת ההזנה כדי להתחיל"
     MANUAL_INVALID = "יש שורות פגומות בטבלה — תקן אותן כדי להריץ"
     SAVED = "ההגדרות נשמרו"
@@ -36,10 +37,6 @@ class Status:
     MFA_OK = "האימות הדו-שלבי עבר — מתחבר"
     STOPPING = "עוצר…"
     STOPPED_PLAIN = "התהליך נעצר"
-
-    @staticmethod
-    def file_selected(filename: str) -> str:
-        return f"נבחר קובץ: {_iso(filename)}"
 
     @staticmethod
     def stopped(done: int | None = None, total: int | None = None) -> str:

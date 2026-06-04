@@ -13,8 +13,8 @@ TYPE = 2
 DESCRIPTION = Activity Description
 NUMBER = 30
 
-[Paths]
-UPLOADED_FILE_PATH = /path/to/your/file.xlsx
+# Note: there is no input-file path here. Data is entered in the in-app grid;
+# an existing Excel file can be imported into the grid from inside the app.
 
 [Logging]
 # Verbose debug channel: when true, the activity feed/console show DEBUG-level

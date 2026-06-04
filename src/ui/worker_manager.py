@@ -16,15 +16,16 @@ class WorkerManager:
         self.worker_thread = None
         self.worker = None
 
-    def start(self, source, require_file=True):
-        # `source` is a prebuilt data source (issue #15/#16): an Excel source in
-        # file mode, or an in-memory source from the manual-entry grid. Its
-        # presence is now the universal input guard for every TYPE.
+    def start(self, source):
+        # `source` is a prebuilt in-memory data source from the entry grid
+        # (epic #14). Its presence is the universal input guard for every TYPE;
+        # the controller already alerts and bails when the grid is empty/invalid,
+        # so reaching here with None is only a defensive fallback.
         if source is None:
-            self.main_view.set_status(Status.NO_FILE)
+            self.main_view.set_status(Status.MANUAL_EMPTY)
             return False
 
-        errors = parm.validate(require_file=require_file)
+        errors = parm.validate()
         if errors:
             error_msg = "הפרמטרים הבאים חסרים או שגויים עבור סוג התהליך שנבחר:\n\n• " + "\n• ".join(errors)
             self.main_view.show_alert("שגיאת הגדרות", error_msg, "warning")

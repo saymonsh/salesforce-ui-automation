@@ -26,13 +26,44 @@ class SettingsFields:
     act_nu: ft.TextField
     url: ft.TextField
     type_value: SegmentedSelect
-    uploaded_file_path: ft.TextField
 
 
 def build_settings_view(
     initial_values: dict[str, str],
     on_save,
 ) -> tuple[ft.Container, SettingsFields]:
+
+    def row(*cells: tuple[ft.Control, int]) -> ft.ResponsiveRow:
+        return ft.ResponsiveRow(
+            run_spacing=Space.MD,
+            controls=[
+                ft.Container(control, col={"xs": 12, "md": span}) for control, span in cells
+            ],
+        )
+
+    # The process group is TYPE-aware: the activity number/description apply only
+    # to TYPE 1 (דיווח פעילות), and the system URL only to TYPE 2/3 (TYPE 1 logs
+    # in to a fixed home URL). Each shows only for its type; hidden values are
+    # still persisted on save, so switching types never loses what was entered.
+    init_type = initial_values.get("TYPE", "")
+    url_field = text_field("URL", initial_values.get("URL", ""))
+    act_nu_field = text_field("ACT_NU", initial_values.get("ACT_NU", ""))
+    act_description_field = text_field("ACT_DESCRIPTION", initial_values.get("ACT_DESCRIPTION", ""))
+
+    act_row = ft.Container(
+        content=row((act_nu_field, 4), (act_description_field, 8)),
+        visible=init_type == "1",
+    )
+    url_row = ft.Container(
+        content=row((url_field, 12)),
+        visible=init_type in ("2", "3"),
+    )
+
+    def _on_type_change(new_type: str) -> None:
+        act_row.visible = new_type == "1"
+        url_row.visible = new_type in ("2", "3")
+        act_row.update()
+        url_row.update()
 
     fields = SettingsFields(
         user_name=text_field("USER_NAME", initial_values.get("USER_NAME", "")),
@@ -42,20 +73,13 @@ def build_settings_view(
         secret_key=text_field(
             "SECRET_KEY", initial_values.get("SECRET_KEY", ""), password=True, can_reveal_password=True
         ),
-        act_description=text_field("ACT_DESCRIPTION", initial_values.get("ACT_DESCRIPTION", "")),
-        act_nu=text_field("ACT_NU", initial_values.get("ACT_NU", "")),
-        url=text_field("URL", initial_values.get("URL", "")),
-        type_value=SegmentedSelect("TYPE", TYPE_OPTIONS, initial_values.get("TYPE", "")),
-        uploaded_file_path=text_field("UPLOADED_FILE_PATH", initial_values.get("UPLOADED_FILE_PATH", "")),
+        act_description=act_description_field,
+        act_nu=act_nu_field,
+        url=url_field,
+        type_value=SegmentedSelect(
+            "TYPE", TYPE_OPTIONS, init_type, on_change=_on_type_change
+        ),
     )
-
-    def row(*cells: tuple[ft.Control, int]) -> ft.ResponsiveRow:
-        return ft.ResponsiveRow(
-            run_spacing=Space.MD,
-            controls=[
-                ft.Container(control, col={"xs": 12, "md": span}) for control, span in cells
-            ],
-        )
 
     def accordion(title: str, *rows: ft.Control, expanded: bool = False) -> ft.ExpansionTile:
         # Collapsible section with an open/close button, so only the open
@@ -87,13 +111,9 @@ def build_settings_view(
             accordion(
                 "הגדרות תהליך",
                 row((fields.type_value.control, 12)),
-                row((fields.act_nu, 4), (fields.act_description, 8)),
+                act_row,
+                url_row,
                 expanded=True,
-            ),
-            accordion(
-                "מערכת וקבצים",
-                row((fields.url, 12)),
-                row((fields.uploaded_file_path, 12)),
             ),
             accordion(
                 "פרטי התחברות",

@@ -51,7 +51,7 @@ def create_help_dialog(page: ft.Page) -> ft.AlertDialog:
                 tight=True,
                 scroll=ft.ScrollMode.AUTO,
                 controls=[
-                    ft.Text("האוטומציה פועלת בהתאם לערך המספרי בעמודה 'סוג' בקובץ ה-Excel:"),
+                    ft.Text("האוטומציה פועלת בהתאם לערך המספרי בעמודה 'סוג' בטבלת ההזנה:"),
                     table,
                     ft.Container(
                         margin=ft.margin.only(top=10),

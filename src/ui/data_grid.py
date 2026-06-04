@@ -631,6 +631,126 @@ class DataGridView:
             })
         return MemoryTabularSource(rows)
 
+    # ----------------------------------------------------------- draft persistence
+    def export_state(self) -> dict:
+        """Snapshot every per-TYPE model to a JSON-serializable dict (issue #18).
+
+        All three models are saved together (not just the active TYPE), so the
+        draft restores whatever the user was editing regardless of which TYPE is
+        selected on the next launch. The values are already plain str/bool/list.
+        """
+        return {
+            "t1": self._t1_rows,
+            "t2": self._t2_rows,
+            "t3": {
+                "start": self._t3_start,
+                "end": self._t3_end,
+                "dates": self._t3_dates,
+                "parts": self._t3_parts,
+            },
+        }
+
+    def restore_state(self, state: dict) -> None:
+        """Load a draft saved by :meth:`export_state` back into the models.
+
+        Defensive by design — the draft is a hand-editable on-disk file, so every
+        field is coerced and TYPE 3's per-date ``present`` lists are re-aligned to
+        the restored date count. Does not touch the live controls (called before
+        the editor is ever built); the active TYPE is set separately from config.
+        """
+        if not isinstance(state, dict):
+            return
+
+        t1 = state.get("t1")
+        if isinstance(t1, list):
+            rows = [
+                {"id": str(r.get("id", "")), "type": str(r.get("type", "")), "date": str(r.get("date", ""))}
+                for r in t1 if isinstance(r, dict)
+            ]
+            self._t1_rows = rows or [self._new_t1_row()]
+
+        t2 = state.get("t2")
+        if isinstance(t2, list):
+            rows = [{"id": str(r.get("id", ""))} for r in t2 if isinstance(r, dict)]
+            self._t2_rows = rows or [self._new_t2_row()]
+
+        t3 = state.get("t3")
+        if isinstance(t3, dict):
+            dates = [str(d) for d in t3.get("dates", []) if d is not None]
+            self._t3_dates = dates or [""]
+            self._t3_start = str(t3.get("start", ""))
+            self._t3_end = str(t3.get("end", ""))
+            width = len(self._t3_dates)
+            parts = []
+            for p in t3.get("parts", []):
+                if not isinstance(p, dict):
+                    continue
+                present = [bool(x) for x in p.get("present", [])]
+                present = (present + [False] * width)[:width]  # re-align to dates
+                parts.append({"id": str(p.get("id", "")), "present": present})
+            self._t3_parts = parts or [self._new_t3_part()]
+
+    # ------------------------------------------------------------- excel import
+    def note(self, message: str, level: str = "ok") -> None:
+        """Public hook for the host to surface an import/export result on the
+        grid's inline feedback line (reuses the smart-paste note)."""
+        self._set_note(message, level)
+
+    def import_tabular_rows(self, incoming: list[dict]) -> str:
+        """Load grid-keyed rows read from Excel (TYPE 1 / 2) into the table.
+
+        Unlike smart-paste (which *appends* a copied selection,
+        :meth:`_apply_tabular_paste`), importing a file *replaces* the current
+        rows: the user is loading "this file", not adding to whatever the draft
+        already held from a previous session — appending there would silently mix
+        old and new batches. (Now that Excel is the only file path, this is the
+        intuitive behaviour.)
+        """
+        if self._type == "2":
+            fields, factory = ("id",), self._new_t2_row
+        else:  # TYPE 1
+            fields, factory = ("id", "type", "date"), self._new_t1_row
+        incoming = [r for r in incoming if any((r.get(k) or "").strip() for k in fields)]
+        if not incoming:
+            msg = "לא נמצאו שורות לייבוא בקובץ"
+            self._set_note(msg, "error")
+            return msg
+        rows = [{k: r.get(k, "") for k in fields} for r in incoming]
+        if self._type == "2":
+            self._t2_rows = rows or [factory()]
+        else:
+            self._t1_rows = rows or [factory()]
+        if self._body is not None:
+            self._render_body()
+            self._body.update()
+        self._refresh_summary()
+        self._emit_change()
+        msg = f"יובאו {len(incoming)} שורות מ-Excel (החליפו את הטבלה)"
+        self._set_note(msg, "ok")
+        return msg
+
+    def import_matrix(self, matrix: dict) -> str:
+        """Load a TYPE 3 attendance matrix read from Excel into the grid.
+
+        The matrix dict carries ISO ``yyyy-mm-dd`` dates and ``נוכח``/``לא נוכח``
+        tokens; convert them back to the grid's editable form (display dates +
+        per-date booleans). Replaces the current matrix (a matrix is one whole).
+        """
+        iso_dates = [str(d) for d in matrix.get("dates", [])]
+        self._t3_start = str(matrix.get("start_time", ""))
+        self._t3_end = str(matrix.get("end_time", ""))
+        self._t3_dates = [normalize_display_date(d) or d for d in iso_dates] or [""]
+        parts = []
+        for p in matrix.get("participants", []):
+            attendance = p.get("attendance", {})
+            present = [attendance.get(d) == _PRESENT for d in iso_dates]
+            parts.append({"id": str(p.get("id_number", "")), "present": present})
+        self._t3_parts = parts or [self._new_t3_part()]
+        self._rerender_t3()
+        msg = f"יובאו {len(parts)} משתתפים · {len(iso_dates)} תאריכים"
+        self._set_note(msg, "ok")
+        return msg
+
     def _build_matrix(self) -> dict:
         # The grid holds Israeli dd.mm.yyyy dates; the processor wants ISO
         # (strptime "%Y-%m-%d %H:%M"), so convert here at the source boundary.

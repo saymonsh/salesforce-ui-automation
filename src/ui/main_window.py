@@ -58,10 +58,6 @@ class MainView:
         self._grid_dialog = None
         self._logs_has_content = False
         self._running = False
-        self._has_file = False
-        # Input mode: "file" (Excel) or "manual" (the in-app data-entry grid, #16).
-        self._mode_value = "file"
-        self._mode_segments: dict[str, ft.Container] = {}
         self._on_run: Optional[Callable] = None
         self._on_stop: Optional[Callable] = None
         # Terminal output arrives from worker/chromedriver threads; queue it and
@@ -91,14 +87,26 @@ class MainView:
         self.page.window.title_bar_buttons_hidden = True
         self.page.padding = 0
         self.page.spacing = 0
+        # Save the manual-entry draft when the OS closes the window (Alt+F4 /
+        # taskbar). The grid dialog already saves on close — the path back to a
+        # closable window — so this is the belt-and-suspenders catch (issue #18).
+        try:
+            self.page.window.on_event = self._on_window_event
+        except Exception:  # pragma: no cover - older/newer Flet window API
+            pass
         apply_theme(self.page)
 
+    def _on_window_event(self, e) -> None:
+        if getattr(e, "type", None) == ft.WindowEventType.CLOSE:
+            self.save_draft()
+
     def _build_controls(self) -> None:
+        # File picker is still needed for importing an Excel file into the grid
+        # and for saving the activity-feed log — not for a main-screen file mode.
         self.file_picker = ft.FilePicker()
         self.clipboard = ft.Clipboard()  # system clipboard for "copy all" in the feed
         self.page.services.append(self.file_picker)
         self.page.services.append(self.clipboard)
-        self._on_browse: Optional[Callable[[str], None]] = None
 
         # --- Hero: a circular action button wrapped by a progress ring ----------
         self.progress_ring = ft.ProgressRing(
@@ -139,25 +147,6 @@ class MainView:
         self._type_segments: dict[str, ft.Container] = {}
         self._type_value = str(parm.TYPE) if parm.TYPE is not None else ""
 
-        # --- File zone ----------------------------------------------------------
-        self.file_badge = ft.Container(
-            width=38, height=38, border_radius=Radius.PILL, alignment=ft.Alignment.CENTER,
-            bgcolor=Color.BRAND_TINT,
-            content=ft.Icon(ft.Icons.DESCRIPTION_OUTLINED, size=20, color=Color.BRAND),
-        )
-        self.file_name_text = ft.Text(
-            "לא נבחר קובץ", size=Type.BODY[0], color=Color.TEXT_PRIMARY,
-            weight=ft.FontWeight.W_600, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True,
-        )
-        self.file_sub_text = ft.Text(
-            "נדרש קובץ Excel", size=Type.CAPTION[0], color=Color.TEXT_TERTIARY,
-            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-        )
-        self.browse_button = ft.TextButton(
-            "בחר קובץ", icon=ft.Icons.UPLOAD_FILE_ROUNDED,
-            style=ft.ButtonStyle(color=Color.BRAND, padding=Space.SM),
-        )
-
         # --- Chrome (topbar icons + window controls) ----------------------------
         self.help_button = ft.IconButton(ft.Icons.INFO_OUTLINE_ROUNDED, icon_color=Color.TEXT_SECONDARY, tooltip="עזרה")
         self.settings_button = ft.IconButton(ft.Icons.SETTINGS_ROUNDED, icon_color=Color.TEXT_SECONDARY, tooltip="הגדרות")
@@ -196,7 +185,7 @@ class MainView:
                 controls=[
                     ft.Icon(ft.Icons.BOLT_ROUNDED, size=34, color="#9a9a9a"),
                     ft.Text("אין עדיין פעילות", color="#cfcfcf", italic=True),
-                    ft.Text("בחר קובץ ולחץ על כפתור ההפעלה", color="#9a9a9a", size=Type.CAPTION[0]),
+                    ft.Text("פתח את הטבלה, הזן נתונים ולחץ על כפתור ההפעלה", color="#9a9a9a", size=Type.CAPTION[0]),
                 ],
             ),
         )
@@ -204,6 +193,7 @@ class MainView:
 
         # --- Manual-entry grid (issue #16) --------------------------------------
         self.data_grid = DataGridView(self.page, on_change=self._on_grid_change)
+        self._restore_draft()  # repopulate the grid from the last session (issue #18)
         if self._type_value:
             self.data_grid.rebuild_for_type(self._type_value)
         self.manual_badge = ft.Container(
@@ -224,9 +214,10 @@ class MainView:
             style=ft.ButtonStyle(color=Color.BRAND, padding=Space.SM),
             on_click=lambda _: self.show_grid_dialog(),
         )
-        # Holder swapped between the file zone and the manual zone by input mode.
-        self._input_zone_holder = ft.Container()
-        self._update_input_zone()  # seed with the default (file) zone — no update() pre-mount
+        # The entry grid is the single input source (epic #14 / #18 — Excel is an
+        # import path into it, not a separate mode). Seed the zone once.
+        self._input_zone_holder = ft.Container(content=self._build_manual_zone())
+        self._refresh_manual_zone()
 
     # --------------------------------------------------------------- window controls
     def _win_minimize(self, e):
@@ -308,80 +299,6 @@ class MainView:
         self.data_grid.rebuild_for_type(self._type_value)
         self._refresh_manual_zone()
 
-    # --------------------------------------------------------------- input mode
-    def _build_mode_selector(self) -> ft.Container:
-        meta = [("file", "קובץ Excel", ft.Icons.UPLOAD_FILE_ROUNDED),
-                ("manual", "הזנה ידנית", ft.Icons.EDIT_NOTE_ROUNDED)]
-        segs: list[ft.Control] = []
-        for key, label, icon in meta:
-            seg = ft.Container(
-                data=key, expand=True, ink=True, border_radius=Radius.MD,
-                padding=ft.padding.symmetric(vertical=Space.XS + 2, horizontal=Space.XS),
-                alignment=ft.Alignment.CENTER, on_click=self._mode_clicked,
-                content=ft.Row(
-                    spacing=Space.XS, alignment=ft.MainAxisAlignment.CENTER,
-                    controls=[
-                        ft.Icon(icon, size=16),
-                        ft.Text(label, size=Type.CAPTION[0], weight=ft.FontWeight.W_600),
-                    ],
-                ),
-            )
-            self._mode_segments[key] = seg
-            segs.append(seg)
-        bar = ft.Container(
-            bgcolor=_GLASS_INSET, border_radius=Radius.LG, padding=4,
-            content=ft.Row(spacing=4, controls=segs),
-        )
-        self._style_mode_segments()
-        return bar
-
-    def _style_mode_segments(self) -> None:
-        for key, seg in self._mode_segments.items():
-            on = key == self._mode_value
-            seg.bgcolor = Color.BRAND if on else ft.Colors.TRANSPARENT
-            icon, text = seg.content.controls
-            icon.color = Color.TEXT_ON_BRAND if on else Color.TEXT_SECONDARY
-            text.color = Color.TEXT_ON_BRAND if on else Color.TEXT_SECONDARY
-            text.weight = ft.FontWeight.W_700 if on else ft.FontWeight.W_600
-
-    def _mode_clicked(self, e: ft.ControlEvent) -> None:
-        if self._running:
-            return  # don't switch input source mid-run
-        key = e.control.data
-        if key == self._mode_value:
-            return
-        self._mode_value = key
-        self._style_mode_segments()
-        self._update_input_zone()
-        self._safe_update()
-
-    def _update_input_zone(self) -> None:
-        """Show the file zone or the manual zone for the current input mode."""
-        if self._mode_value == "manual":
-            self._input_zone_holder.content = self._build_manual_zone()
-            self._refresh_manual_zone()
-        else:
-            self._input_zone_holder.content = self._build_file_zone()
-
-    # ------------------------------------------------------------------ file zone
-    def _build_file_zone(self) -> ft.Container:
-        return ft.Container(
-            bgcolor=_GLASS_CHIP, border_radius=Radius.LG,
-            border=ft.border.all(1, ft.Colors.with_opacity(0.5, "#ffffff")),
-            padding=ft.padding.symmetric(horizontal=Space.MD, vertical=Space.SM),
-            content=ft.Row(
-                spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    self.file_badge,
-                    ft.Column(
-                        spacing=0, expand=True, tight=True,
-                        controls=[self.file_name_text, self.file_sub_text],
-                    ),
-                    self.browse_button,
-                ],
-            ),
-        )
-
     # ------------------------------------------------------------------ manual zone
     def _build_manual_zone(self) -> ft.Container:
         return ft.Container(
@@ -433,9 +350,8 @@ class MainView:
         # is refreshed when the dialog closes (_close_grid_dialog/_on_dismissed).
         if self._grid_dialog is not None:
             return
-        if self._mode_value == "manual":
-            self._refresh_manual_zone()
-            self._safe_update()
+        self._refresh_manual_zone()
+        self._safe_update()
 
     # ------------------------------------------------------------------ hero
     def _build_hero(self) -> ft.Control:
@@ -624,7 +540,6 @@ class MainView:
                     topbar,
                     ft.Divider(color=ft.Colors.with_opacity(0.5, Color.BORDER), height=1),
                     self._build_type_selector(),
-                    self._build_mode_selector(),
                     self._input_zone_holder,
                     self._build_hero(),
                     self.linear,
@@ -695,51 +610,11 @@ class MainView:
         elif self._on_run:
             self._on_run(e)
 
-    def bind_actions(self, on_browse, on_run, on_stop, on_settings, on_help) -> None:
-        self._on_browse = on_browse
+    def bind_actions(self, on_run, on_stop, on_settings, on_help) -> None:
         self._on_run = on_run
         self._on_stop = on_stop
         self.settings_button.on_click = on_settings
         self.help_button.on_click = on_help
-        self.browse_button.on_click = self.pick_file
-
-    def pick_file(self, _event=None) -> None:
-        self.page.run_task(self._pick_file_async)
-
-    async def _pick_file_async(self) -> None:
-        files = await self.file_picker.pick_files(
-            allow_multiple=False, file_type=ft.FilePickerFileType.CUSTOM,
-            allowed_extensions=["xlsx", "xls"], dialog_title="בחר קובץ Excel",
-        )
-        self._handle_file_pick_result(files)
-
-    def _handle_file_pick_result(self, files) -> None:
-        if not files:
-            return
-        file_path = files[0].path or files[0].name
-        self.set_selected_file(file_path)
-        if self._on_browse:
-            self._on_browse(file_path)
-
-    def set_selected_file(self, file_path: str | None) -> None:
-        self._has_file = bool(file_path)
-        if file_path:
-            self.file_name_text.value = os.path.basename(file_path)
-            self.file_name_text.tooltip = file_path
-            self.file_sub_text.value = "קובץ נבחר · מוכן להרצה"
-            self.file_sub_text.color = Color.SUCCESS
-            self.file_badge.bgcolor = ft.Colors.with_opacity(0.18, Color.SUCCESS)
-            self.file_badge.content.name = ft.Icons.TASK_ALT_ROUNDED
-            self.file_badge.content.color = Color.SUCCESS
-        else:
-            self.file_name_text.value = "לא נבחר קובץ"
-            self.file_name_text.tooltip = None
-            self.file_sub_text.value = "נדרש קובץ Excel"
-            self.file_sub_text.color = Color.TEXT_TERTIARY
-            self.file_badge.bgcolor = Color.BRAND_TINT
-            self.file_badge.content.name = ft.Icons.DESCRIPTION_OUTLINED
-            self.file_badge.content.color = Color.BRAND
-        self._safe_update()
 
     def set_status(self, text: str, level: str | None = None) -> None:
         """Updates the hero state/caption only. The feed shows real terminal output."""
@@ -889,10 +764,6 @@ class MainView:
         self._feed_dialog = None
 
     # ------------------------------------------------------------- manual grid
-    @property
-    def input_mode(self) -> str:
-        return self._mode_value
-
     def show_grid_dialog(self) -> None:
         """Open the manual-entry table as a modal editor (issue #16)."""
         if self._grid_dialog is not None:
@@ -909,6 +780,14 @@ class MainView:
             tooltip="שמור את הטבלה וחזור למסך הראשי",
             on_click=lambda _: self._close_grid_dialog(),
             style=ft.ButtonStyle(bgcolor=Color.BRAND, color=Color.TEXT_ON_BRAND),
+        )
+        # Excel is now an import path *into* the grid (epic #14 / #18), replacing
+        # the table with the file's rows — there is no separate file-run mode.
+        import_btn = ft.TextButton(
+            "ייבא מ-Excel", icon=ft.Icons.UPLOAD_FILE_ROUNDED,
+            tooltip="טען קובץ Excel קיים אל תוך הטבלה (מחליף את התוכן הנוכחי)",
+            style=ft.ButtonStyle(color=Color.BRAND),
+            on_click=lambda _: self._import_grid_clicked(),
         )
         self._grid_dialog = ft.AlertDialog(
             modal=True, rtl=True,
@@ -932,7 +811,10 @@ class MainView:
                     ft.Container(expand=True, content=self.data_grid.build_surface()),
                     ft.Container(
                         padding=ft.padding.only(left=Space.LG, right=Space.LG, bottom=Space.MD, top=Space.XS),
-                        content=ft.Row([save_btn], alignment=ft.MainAxisAlignment.END),
+                        content=ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            controls=[import_btn, save_btn],
+                        ),
                     ),
                 ]),
             ),
@@ -952,6 +834,7 @@ class MainView:
         if getattr(self, "_console_row", None) is not None:
             self._console_row.visible = True
         self.data_grid.detach()
+        self.save_draft()  # persist the table the user just edited (issue #18)
         self._refresh_manual_zone()
         self._safe_update()
 
@@ -960,8 +843,29 @@ class MainView:
         if getattr(self, "_console_row", None) is not None:
             self._console_row.visible = True
         self.data_grid.detach()
+        self.save_draft()  # Esc/barrier dismissal still saves (issue #18)
         self._refresh_manual_zone()
         self._safe_update()
+
+    # ----------------------------------------------------------- draft (issue #18)
+    def _restore_draft(self) -> None:
+        """Repopulate the grid from the last session's draft, if any. Silent —
+        a missing/corrupt draft must never block startup."""
+        try:
+            from src.core.draft_store import load_draft
+            state = load_draft()
+            if state:
+                self.data_grid.restore_state(state)
+        except Exception:
+            pass
+
+    def save_draft(self) -> None:
+        """Snapshot the grid to disk so a half-typed table survives a restart."""
+        try:
+            from src.core.draft_store import save_draft as _persist
+            _persist(self.data_grid.export_state())
+        except Exception:
+            pass
 
     def get_manual_source(self):
         """Resolve the manual grid into a data source, or None (with an alert)."""
@@ -973,6 +877,30 @@ class MainView:
             self.show_alert("שורות פגומות", Status.MANUAL_INVALID + "\n\n• " + "\n• ".join(reasons), "warning")
             return None
         return self.data_grid.to_source()
+
+    # --------------------------------------------------- grid Excel import/export
+    def _import_grid_clicked(self) -> None:
+        self.page.run_task(self._import_grid_async)
+
+    async def _import_grid_async(self) -> None:
+        files = await self.file_picker.pick_files(
+            allow_multiple=False, file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["xlsx", "xls"], dialog_title="ייבא קובץ Excel לטבלה",
+        )
+        if not files:
+            return
+        path = files[0].path or files[0].name
+        try:
+            if self._type_value == "3":
+                from src.automation.excel_import import read_matrix
+                self.data_grid.import_matrix(read_matrix(path))
+            else:
+                from src.automation.excel_import import read_tabular
+                self.data_grid.import_tabular_rows(read_tabular(path, self._type_value))
+        except Exception as ex:  # malformed/locked file — surface on the grid note
+            self.data_grid.note(f"ייבוא נכשל: {ex}", "error")
+            return
+        self.save_draft()  # the imported rows are now part of the draft
 
     # ------------------------------------------------------------- settings modal
     def show_settings_view(self, settings_container) -> None:

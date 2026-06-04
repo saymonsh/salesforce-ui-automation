@@ -19,7 +19,6 @@ class SettingsController:
                 "ACT_NU": parm.ACT_NU or "",
                 "URL": parm.URL or "",
                 "TYPE": str(parm.TYPE or ""),
-                "UPLOADED_FILE_PATH": parm.UPLOADED_FILE_PATH or "",
             },
             on_save=self._save_settings,
         )
@@ -33,7 +32,6 @@ class SettingsController:
         parm.update_config("Activity", "NUMBER", fields.act_nu.value)
         parm.update_config("Salesforce", "URL", fields.url.value)
         parm.update_config("Salesforce", "TYPE", fields.type_value.value)
-        parm.update_config("Paths", "UPLOADED_FILE_PATH", fields.uploaded_file_path.value)
 
         try:
             parm.reload()
@@ -42,8 +40,4 @@ class SettingsController:
             return
 
         self.main_view.switch_to_main()
-        self.main_view.set_selected_file(parm.UPLOADED_FILE_PATH or None)
         self.main_view.set_status("Saved")
-
-    def get_uploaded_file_path(self):
-        return parm.UPLOADED_FILE_PATH

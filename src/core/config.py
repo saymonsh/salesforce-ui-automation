@@ -41,8 +41,6 @@ class Config:
             self.ACT_DESCRIPTION = self.parser['Activity']['DESCRIPTION']
             self.ACT_NU = self.parser['Activity']['NUMBER']
 
-            self.UPLOADED_FILE_PATH = self.parser.get('Paths', 'UPLOADED_FILE_PATH', fallback='')
-
             # Debug verbosity for the logging channel (issue #12). When False,
             # DEBUG-level lines (selectors, payloads, timings) are suppressed.
             self.DEBUG_LOGGING = self.parser.getboolean('Logging', 'DEBUG', fallback=False)
@@ -52,38 +50,35 @@ class Config:
         except Exception as e:
              raise ValueError(f"Error reading configuration: {e}")
 
-    def validate(self, require_file=True):
+    def validate(self):
         """
         Validates the current configuration based on the selected TYPE.
         Returns a list of missing or invalid parameter names.
 
-        ``require_file`` gates the UPLOADED_FILE_PATH check: it is required in the
-        Excel-file input mode but not in the manual-entry grid mode (issue #16),
-        where the input comes from an in-memory source instead of a file on disk.
+        Input data always comes from the in-app entry grid now (epic #14 / issue
+        #18 — Excel is an import path into the grid, not a separate input mode),
+        so there is no file path to validate here: only credentials, the system
+        URL, and the TYPE-1 activity fields.
         """
         errors = []
 
-        # Global validations
+        # Global validations (credentials apply to every TYPE)
         if not self.USER_NAME: errors.append("שם משתמש (User Name)")
         if not self.PASSWORD: errors.append("סיסמה (Password)")
         if not self.SECRET_KEY: errors.append("מפתח סודי (Secret Key)")
-        if not self.URL: errors.append("כתובת מערכת (URL)")
-        
+
         if self.TYPE is None:
             errors.append("סוג תהליך לא תקין או חסר (Type)")
             return errors # Cannot check specific logic if TYPE is unknown
 
         # Context-Aware Validations
-        if self.TYPE == 1: # Login & Actions
-            if require_file and not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
+        if self.TYPE == 1: # Login & Actions — logs in to a fixed home URL, so the
+            # configurable system URL does not apply here.
             if not self.ACT_NU: errors.append("מספר פעילות (Activity Number)")
             if not self.ACT_DESCRIPTION: errors.append("תיאור פעילות (Description)")
 
-        elif self.TYPE == 2: # Candidates
-            if require_file and not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
-
-        elif self.TYPE == 3: # Attendance Matrix
-            if require_file and not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
+        elif self.TYPE in (2, 3): # Candidates / Attendance — both navigate to URL.
+            if not self.URL: errors.append("כתובת מערכת (URL)")
 
         return errors
 

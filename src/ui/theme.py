@@ -240,8 +240,9 @@ class SegmentedSelect:
     `.value` interface as text_field/dropdown, so saving code is unchanged.
     """
 
-    def __init__(self, label: str, options: list[tuple[str, str]], value: str = ""):
+    def __init__(self, label: str, options: list[tuple[str, str]], value: str = "", on_change=None):
         self._value = value or (options[0][0] if options else "")
+        self._on_change = on_change  # called with the new key after a selection
         self._segments: dict[str, ft.Container] = {}
         seg_row: list[ft.Control] = []
         for key, text in options:
@@ -281,6 +282,8 @@ class SegmentedSelect:
         self._apply_styles()
         # Mounted now, so push the new selection styling to the UI in one update.
         self.control.update()
+        if self._on_change:
+            self._on_change(self._value)
 
     def _apply_styles(self) -> None:
         for key, seg in self._segments.items():

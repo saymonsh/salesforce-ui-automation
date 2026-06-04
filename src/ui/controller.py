@@ -1,7 +1,3 @@
-import os
-
-from src.automation.data_source import ExcelMatrixSource, ExcelTabularSource
-from src.core.config import config_instance as parm
 from src.core.status_messages import Status
 from src.ui.settings_controller import SettingsController
 from src.ui.worker_manager import WorkerManager
@@ -17,25 +13,18 @@ class Controller:
     def __init__(self, page, main_view):
         self.page = page
         self.main_view = main_view
-        self.uploaded_file_path = parm.UPLOADED_FILE_PATH or None
 
         self.settings_controller = SettingsController(page, main_view)
         self.worker_manager = WorkerManager(main_view)
 
         self._attach_events()
-        self._init_ui_state()
-        
+
         # State tracking for progress
         self.total_items = 0
         self.current_item = 0
 
-    def _init_ui_state(self):
-        if self.uploaded_file_path:
-            self.main_view.set_selected_file(self.uploaded_file_path)
-
     def _attach_events(self):
         self.main_view.bind_actions(
-            on_browse=self.on_browse_button_click,
             on_run=self.on_run_click,
             on_stop=self.on_stop_click,
             on_settings=self.on_setting_click,
@@ -45,30 +34,20 @@ class Controller:
     def on_help_click(self, _event=None):
         self.main_view.show_help_dialog()
 
-    def on_browse_button_click(self, file_path):
-        self.uploaded_file_path = file_path
-        self.main_view.set_status(Status.file_selected(os.path.basename(file_path)))
-
     def on_setting_click(self, _event=None):
         self.settings_controller.open_settings()
-        self.uploaded_file_path = parm.UPLOADED_FILE_PATH or None
 
     def on_stop_click(self, _event=None):
         self.worker_manager.stop()
 
     def on_run_click(self, _event=None):
-        # Resolve the run's input source from the active input mode (issue #16):
-        # the Excel file, or the in-app manual-entry grid.
-        if self.main_view.input_mode == "manual":
-            source = self.main_view.get_manual_source()
-            if source is None:
-                return  # the grid is empty/invalid — main_view already alerted
-            require_file = False
-        else:
-            source = self._build_file_source()
-            require_file = True
+        # Input always comes from the in-app entry grid now (epic #14 / #18 —
+        # Excel is imported into the grid, never run directly).
+        source = self.main_view.get_manual_source()
+        if source is None:
+            return  # the grid is empty/invalid — main_view already alerted
 
-        started = self.worker_manager.start(source, require_file=require_file)
+        started = self.worker_manager.start(source)
         if not started:
             return
 
@@ -80,16 +59,6 @@ class Controller:
             on_log=self.on_log,
         )
         self.worker_manager.start_thread()
-
-    def _build_file_source(self):
-        """Build the Excel data source for file mode, or None if no file is set
-        (worker_manager then emits the NO_FILE status)."""
-        path = self.uploaded_file_path
-        if not path:
-            return None
-        if parm.TYPE == 3:
-            return ExcelMatrixSource(path)
-        return ExcelTabularSource(path)
 
     def on_log(self, line, level):
         # Debug channel → activity feed. enqueue_terminal_line is thread-safe
