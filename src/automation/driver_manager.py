@@ -1,5 +1,6 @@
 import os
 import subprocess
+import threading
 from time import sleep
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -23,9 +24,35 @@ class DriverManager:
         if not os.path.exists(chromedriver_path):
              # Fallback or error if needed, but for now strictly matching original
              pass
-        self.chromedriver_process = subprocess.Popen([chromedriver_path, "--port=9515"])
+        # Capture chromedriver's own output so it streams into the activity feed
+        # too (it's a separate process that otherwise writes straight to the OS
+        # console, bypassing the Python stdout redirect). A reader thread also
+        # prevents the pipe from filling and blocking the subprocess.
+        self.chromedriver_process = subprocess.Popen(
+            [chromedriver_path, "--port=9515"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            encoding="utf-8",
+            errors="replace",
+        )
+        threading.Thread(
+            target=self._pump_output, args=(self.chromedriver_process,), daemon=True
+        ).start()
         sleep(2)
         return self.chromedriver_process
+
+    @staticmethod
+    def _pump_output(proc):
+        """Forward each chromedriver output line to stdout (→ activity feed)."""
+        try:
+            for line in proc.stdout:
+                line = line.rstrip("\n")
+                if line.strip():
+                    print(line)
+        except Exception:
+            pass
 
     def create_driver(self):
         # Setup Proxy
