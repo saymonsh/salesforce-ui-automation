@@ -56,6 +56,15 @@ class BaseProcessor(ABC):
         self.check_for_stop()
         self.driver_manager.create_driver()
 
+    def _cleanup_driver(self):
+        """Closes the driver and chromedriver subprocess. Safe to call twice."""
+        if self.driver_manager:
+            self.driver_manager.close_driver()
+
+    def _force_close_driver(self):
+        """Force-terminates the driver to break any blocking Selenium wait on stop."""
+        self._cleanup_driver()
+
     # =========================================================================
     # Shared Login Flow
     # =========================================================================

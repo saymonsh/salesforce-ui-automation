@@ -1,6 +1,7 @@
 import threading
 
 from src.automation.processors.attendance_processor import AttendanceProcessor
+from src.automation.processors.candidate_processor import CandidateProcessor
 from src.automation.processors.login_processor import LoginProcessor
 from src.core.config import config_instance as parm
 from src.ui.worker import AutomationWorker

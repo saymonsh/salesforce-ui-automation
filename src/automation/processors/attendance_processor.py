@@ -7,7 +7,7 @@ from src.automation.processors.base_processor import BaseProcessor
 from src.automation.excel_parser import ExcelParser
 from src.automation.api_client import SalesforceApiClient
 from src.core.config import config_instance as parm
-from src.core.exceptions import StopException
+from src.core.exceptions import StopRequestedException
 
 # Excel times are entered in Israel local time; Salesforce datetime fields expect UTC.
 _IL_TZ = ZoneInfo("Asia/Jerusalem")
@@ -209,7 +209,7 @@ class AttendanceProcessor(BaseProcessor):
                 
             return report
 
-        except StopException:
+        except StopRequestedException:
             print("Attendance Processor: Stopped by user.")
             self.update_ui(status="הפעולה הופסקה על ידי המשתמש.")
             self._force_close_driver()
