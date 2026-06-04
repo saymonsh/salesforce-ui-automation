@@ -228,4 +228,3 @@ class AttendanceProcessor(BaseProcessor):
 
         finally:
             self._cleanup_driver()
-            self.update_ui(status="אנא לחץ 'הבא' להמשך")
