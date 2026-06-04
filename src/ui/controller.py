@@ -77,19 +77,19 @@ class Controller:
             self.main_view.set_status(f"Starting process... ({total_items} items)")
 
     async def _safe_worker_started(self, total_items):
-        self.main_view.set_progress(0.0)
+        self.main_view.set_progress(0.0, 0, self.total_items)
         self.main_view.set_status(f"Starting process... ({total_items} items)")
 
     def on_item_processed(self):
         self.current_item += 1
         percentage = self.current_item / self.total_items
         if self.page:
-            self.page.run_task(self._safe_update_progress, percentage)
+            self.page.run_task(self._safe_update_progress, percentage, self.current_item, self.total_items)
         else:
-            self.main_view.set_progress(percentage)
+            self.main_view.set_progress(percentage, self.current_item, self.total_items)
 
-    async def _safe_update_progress(self, percentage):
-        self.main_view.set_progress(percentage)
+    async def _safe_update_progress(self, percentage, current, total):
+        self.main_view.set_progress(percentage, current, total)
 
     def update_status(self, status):
         if status != "Done":
@@ -108,24 +108,26 @@ class Controller:
             # Handle synchronously if page is missing or tests
             self.worker_manager.set_idle_ui()
             if not success:
-                self.main_view.set_status(f"Error: {message}")
+                self.main_view.set_status(f"Error: {message}", level="error")
                 self.main_view.set_progress(0.0)
+            elif message != "Execution Stopped":
+                self.main_view.set_progress(1.0)
+                self.main_view.set_status(message, level="success")
             else:
                 self.main_view.set_status(message)
-                if message != "Execution Stopped":
-                    self.main_view.set_progress(1.0)
             self.worker_manager.cleanup()
 
     async def _safe_worker_finished(self, success, message):
         self.worker_manager.set_idle_ui()
 
         if not success:
-            self.main_view.set_status(f"Error: {message}")
-            self.main_view.set_progress(0.0) # Reset or error state
+            self.main_view.set_status(f"Error: {message}", level="error")
+            self.main_view.set_progress(0.0)  # Reset or error state
+        elif message != "Execution Stopped":
+            self.main_view.set_progress(1.0)  # Force 100% completion
+            self.main_view.set_status(message, level="success")
         else:
             self.main_view.set_status(message)
-            if message != "Execution Stopped":
-                self.main_view.set_progress(1.0) # Force 100% completion
 
         self.worker_manager.cleanup()
 

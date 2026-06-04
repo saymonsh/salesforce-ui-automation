@@ -4,6 +4,18 @@ from dataclasses import dataclass
 
 import flet as ft
 
+from src.ui.theme import (
+    Color, Radius, Space, Type, SegmentedSelect, body_text, heading, primary_button, text_field,
+)
+
+# TYPE options shown in the settings selector. Keys are the config values
+# (1/2/3); labels mirror _TYPE_NAMES in main_window.py.
+TYPE_OPTIONS = [
+    ("1", "דיווח פעילות"),
+    ("2", "מועמדים"),
+    ("3", "נוכחות"),
+]
+
 
 @dataclass
 class SettingsFields:
@@ -13,7 +25,7 @@ class SettingsFields:
     act_description: ft.TextField
     act_nu: ft.TextField
     url: ft.TextField
-    type_value: ft.TextField
+    type_value: SegmentedSelect
     uploaded_file_path: ft.TextField
 
 
@@ -21,89 +33,93 @@ def build_settings_view(
     initial_values: dict[str, str],
     on_save,
 ) -> tuple[ft.Container, SettingsFields]:
-    
-    def make_field(label: str, value: str, password: bool = False, can_reveal_password: bool = False):
-        return ft.TextField(
-            label=label,
-            value=value,
-            password=password,
-            can_reveal_password=can_reveal_password,
-            text_align=ft.TextAlign.RIGHT,
-            border_radius=8,
-            border_color="#828383",
-            focused_border_color="#de2952",
-            cursor_color="#de2952",
-            bgcolor="#ffffff",
-            color="#000000",
-        )
 
     fields = SettingsFields(
-        user_name=make_field("USER_NAME", initial_values.get("USER_NAME", "")),
-        password=make_field("PASSWORD", initial_values.get("PASSWORD", ""), password=True, can_reveal_password=True),
-        secret_key=make_field("SECRET_KEY", initial_values.get("SECRET_KEY", "")),
-        act_description=make_field("ACT_DESCRIPTION", initial_values.get("ACT_DESCRIPTION", "")),
-        act_nu=make_field("ACT_NU", initial_values.get("ACT_NU", "")),
-        url=make_field("URL", initial_values.get("URL", "")),
-        type_value=make_field("TYPE", initial_values.get("TYPE", "")),
-        uploaded_file_path=make_field("UPLOADED_FILE_PATH", initial_values.get("UPLOADED_FILE_PATH", "")),
+        user_name=text_field("USER_NAME", initial_values.get("USER_NAME", "")),
+        password=text_field(
+            "PASSWORD", initial_values.get("PASSWORD", ""), password=True, can_reveal_password=True
+        ),
+        secret_key=text_field(
+            "SECRET_KEY", initial_values.get("SECRET_KEY", ""), password=True, can_reveal_password=True
+        ),
+        act_description=text_field("ACT_DESCRIPTION", initial_values.get("ACT_DESCRIPTION", "")),
+        act_nu=text_field("ACT_NU", initial_values.get("ACT_NU", "")),
+        url=text_field("URL", initial_values.get("URL", "")),
+        type_value=SegmentedSelect("TYPE", TYPE_OPTIONS, initial_values.get("TYPE", "")),
+        uploaded_file_path=text_field("UPLOADED_FILE_PATH", initial_values.get("UPLOADED_FILE_PATH", "")),
     )
 
+    def row(*cells: tuple[ft.Control, int]) -> ft.ResponsiveRow:
+        return ft.ResponsiveRow(
+            run_spacing=Space.MD,
+            controls=[
+                ft.Container(control, col={"xs": 12, "md": span}) for control, span in cells
+            ],
+        )
+
+    def accordion(title: str, *rows: ft.Control, expanded: bool = False) -> ft.ExpansionTile:
+        # Collapsible section with an open/close button, so only the open
+        # group takes vertical space and the dialog fits without scrolling.
+        return ft.ExpansionTile(
+            title=body_text(title, level=Type.TITLE, color=Color.TEXT_PRIMARY),
+            expanded=expanded,
+            maintain_state=True,
+            bgcolor=ft.Colors.TRANSPARENT,
+            collapsed_bgcolor=ft.Colors.TRANSPARENT,
+            icon_color=Color.BRAND,
+            collapsed_icon_color=Color.TEXT_SECONDARY,
+            text_color=Color.TEXT_PRIMARY,
+            collapsed_text_color=Color.TEXT_PRIMARY,
+            shape=ft.RoundedRectangleBorder(radius=Radius.MD),
+            collapsed_shape=ft.RoundedRectangleBorder(radius=Radius.MD),
+            tile_padding=ft.padding.symmetric(horizontal=Space.SM),
+            # Top padding gives the fields' floating labels room so they are not
+            # clipped by the tile's content edge.
+            controls_padding=ft.padding.only(left=Space.SM, right=Space.SM, top=Space.MD, bottom=Space.LG),
+            controls=[ft.Column(spacing=Space.MD, controls=list(rows))],
+        )
+
     fields_column = ft.Column(
-        spacing=15,
+        spacing=Space.SM,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
         controls=[
-            ft.ResponsiveRow(
-                controls=[
-                    ft.Container(fields.user_name, col={"xs": 12, "md": 6}),
-                    ft.Container(fields.password, col={"xs": 12, "md": 6}),
-                ]
+            accordion(
+                "הגדרות תהליך",
+                row((fields.type_value.control, 12)),
+                row((fields.act_nu, 4), (fields.act_description, 8)),
+                expanded=True,
             ),
-            ft.ResponsiveRow(
-                controls=[
-                    ft.Container(fields.secret_key, col={"xs": 12, "md": 6}),
-                    ft.Container(fields.type_value, col={"xs": 12, "md": 6}),
-                ]
+            accordion(
+                "מערכת וקבצים",
+                row((fields.url, 12)),
+                row((fields.uploaded_file_path, 12)),
             ),
-            ft.ResponsiveRow(
-                controls=[
-                    ft.Container(fields.act_nu, col={"xs": 12, "md": 4}),
-                    ft.Container(fields.act_description, col={"xs": 12, "md": 8}),
-                ]
+            accordion(
+                "פרטי התחברות",
+                row((fields.user_name, 6), (fields.password, 6)),
+                row((fields.secret_key, 12)),
             ),
-            ft.Container(content=fields.url),
-            ft.Container(content=fields.uploaded_file_path),
         ],
     )
 
-    save_button = ft.FilledButton(
-        "שמור הגדרות",
-        icon=ft.Icons.SAVE_OUTLINED,
-        style=ft.ButtonStyle(
-            bgcolor="#de2952",
-            color="#ffffff",
-            shape=ft.RoundedRectangleBorder(radius=8),
-            padding=20
-        ),
-        on_click=lambda _: on_save(fields),
-    )
-    
-    header = ft.Text("הגדרות משתמש", size=24, weight=ft.FontWeight.W_700, color="#000000")
-    
+    save_button = primary_button("שמור הגדרות", icon=ft.Icons.SAVE_OUTLINED)
+    save_button.on_click = lambda _: on_save(fields)
+
     container = ft.Container(
         expand=True,
-        bgcolor="#ffffff",
+        bgcolor=None,  # transparent — the dialog itself provides the opaque surface
         border_radius=8,
-        padding=20,
+        padding=Space.LG,
         content=ft.Column(
-            spacing=20,
+            spacing=Space.LG,
             controls=[
-                header,
-                ft.Divider(color="#828383"),
+                heading("הגדרות משתמש"),
+                ft.Divider(color=Color.BORDER),
                 ft.Container(content=fields_column, expand=True),
                 ft.Row(controls=[save_button], alignment=ft.MainAxisAlignment.END),
-            ]
-        )
+            ],
+        ),
     )
 
     return container, fields
