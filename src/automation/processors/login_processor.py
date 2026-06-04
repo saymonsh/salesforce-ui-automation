@@ -1,6 +1,5 @@
 from src.automation.processors.base_processor import BaseProcessor
 from src.automation import actions
-from src.automation.data_source import ExcelTabularSource
 from src.core.config import config_instance as parm
 from src.core.exceptions import StopRequestedException
 from src.core.logger import logger
@@ -11,8 +10,10 @@ class LoginProcessor(BaseProcessor):
     def __init__(self, signals=None, driver_manager=None):
         super().__init__(signals, driver_manager)
 
-    def process(self, uploaded_file_path):
-        rows = self._load_rows(ExcelTabularSource(uploaded_file_path))
+    def process(self, source):
+        # `source` is a TabularSource (issue #15) — Excel or the manual-entry
+        # grid (issue #16); the processor is agnostic to where the rows came from.
+        rows = self._load_rows(source)
         if rows is None:
             return
 

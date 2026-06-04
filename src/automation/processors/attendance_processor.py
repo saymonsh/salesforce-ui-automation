@@ -4,7 +4,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from src.core.utils import smart_sleep, verify_running
 from src.automation.processors.base_processor import BaseProcessor
-from src.automation.data_source import ExcelMatrixSource
 from src.automation.api_client import SalesforceApiClient
 from src.core.config import config_instance as parm
 from src.core.exceptions import StopRequestedException
@@ -32,7 +31,7 @@ class AttendanceProcessor(BaseProcessor):
         delay = random.uniform(min_seconds, max_seconds)
         smart_sleep(delay, lambda: self.is_stopped)
 
-    def process(self, uploaded_file_path):
+    def process(self, source):
         try:
             # 1. Extract Parent Record ID from URL
             url = parm.URL
@@ -42,8 +41,9 @@ class AttendanceProcessor(BaseProcessor):
             parent_record_id = match.group(1)
             logger.info(f"parent service schedule {parent_record_id}", stage="attendance")
 
-            # 2. Parse the attendance matrix (issue #15: via the data-source seam)
-            excel_data = ExcelMatrixSource(uploaded_file_path).matrix()
+            # 2. Pull the attendance matrix from the source (issue #15) — Excel or
+            #    the manual-entry grid (issue #16); both carry the same dict shape.
+            excel_data = source.matrix()
             logger.info(
                 f"matrix parsed: {len(excel_data['participants'])} participants, "
                 f"{len(excel_data['dates'])} dates",

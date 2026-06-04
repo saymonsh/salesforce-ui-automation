@@ -1,5 +1,6 @@
 import os
 
+from src.automation.data_source import ExcelMatrixSource, ExcelTabularSource
 from src.core.config import config_instance as parm
 from src.core.status_messages import Status
 from src.ui.settings_controller import SettingsController
@@ -56,7 +57,18 @@ class Controller:
         self.worker_manager.stop()
 
     def on_run_click(self, _event=None):
-        started = self.worker_manager.start(self.uploaded_file_path)
+        # Resolve the run's input source from the active input mode (issue #16):
+        # the Excel file, or the in-app manual-entry grid.
+        if self.main_view.input_mode == "manual":
+            source = self.main_view.get_manual_source()
+            if source is None:
+                return  # the grid is empty/invalid — main_view already alerted
+            require_file = False
+        else:
+            source = self._build_file_source()
+            require_file = True
+
+        started = self.worker_manager.start(source, require_file=require_file)
         if not started:
             return
 
@@ -68,6 +80,16 @@ class Controller:
             on_log=self.on_log,
         )
         self.worker_manager.start_thread()
+
+    def _build_file_source(self):
+        """Build the Excel data source for file mode, or None if no file is set
+        (worker_manager then emits the NO_FILE status)."""
+        path = self.uploaded_file_path
+        if not path:
+            return None
+        if parm.TYPE == 3:
+            return ExcelMatrixSource(path)
+        return ExcelTabularSource(path)
 
     def on_log(self, line, level):
         # Debug channel → activity feed. enqueue_terminal_line is thread-safe

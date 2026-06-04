@@ -3,7 +3,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from src.automation.processors.base_processor import BaseProcessor
 from src.automation import selectors as S
-from src.automation.data_source import ExcelTabularSource
 from src.core.config import config_instance as parm
 from src.core.exceptions import StopRequestedException
 from src.core.logger import logger
@@ -12,8 +11,9 @@ from src.core.utils import interruptible_find_element
 
 
 class CandidateProcessor(BaseProcessor):
-    def process(self, uploaded_file_path):
-        rows = self._load_rows(ExcelTabularSource(uploaded_file_path))
+    def process(self, source):
+        # `source` is a TabularSource (issue #15) — Excel or the manual-entry grid.
+        rows = self._load_rows(source)
         if rows is None:
             return
 

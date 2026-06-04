@@ -16,23 +16,26 @@ class WorkerManager:
         self.worker_thread = None
         self.worker = None
 
-    def start(self, uploaded_file_path):
-        if uploaded_file_path is None and parm.TYPE != 3:
+    def start(self, source, require_file=True):
+        # `source` is a prebuilt data source (issue #15/#16): an Excel source in
+        # file mode, or an in-memory source from the manual-entry grid. Its
+        # presence is now the universal input guard for every TYPE.
+        if source is None:
             self.main_view.set_status(Status.NO_FILE)
             return False
 
-        errors = parm.validate()
+        errors = parm.validate(require_file=require_file)
         if errors:
             error_msg = "הפרמטרים הבאים חסרים או שגויים עבור סוג התהליך שנבחר:\n\n• " + "\n• ".join(errors)
             self.main_view.show_alert("שגיאת הגדרות", error_msg, "warning")
             return False
 
         if parm.TYPE == 1:
-            self.worker = AutomationWorker(LoginProcessor, uploaded_file_path)
+            self.worker = AutomationWorker(LoginProcessor, source)
         elif parm.TYPE == 2:
-            self.worker = AutomationWorker(CandidateProcessor, uploaded_file_path)
+            self.worker = AutomationWorker(CandidateProcessor, source)
         elif parm.TYPE == 3:
-            self.worker = AutomationWorker(AttendanceProcessor, uploaded_file_path)
+            self.worker = AutomationWorker(AttendanceProcessor, source)
         else:
             self.main_view.show_alert("שגיאה", f"{parm.TYPE} איננו תהליך חוקי", "critical")
             return False

@@ -65,3 +65,28 @@ class ExcelMatrixSource(MatrixSource):
 
     def matrix(self):
         return ExcelParser.parse_attendance_matrix(self.file_path)
+
+
+class MemoryTabularSource(TabularSource):
+    """Tabular input (TYPE 1 / 2) held in memory — the in-app manual-entry grid
+    (issue #16). Built by the UI from the grid's rows; the processors can't tell
+    it apart from :class:`ExcelTabularSource`."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def rows(self):
+        # Copy so the consumer can't mutate the grid's backing list.
+        return list(self._rows)
+
+
+class MemoryMatrixSource(MatrixSource):
+    """Attendance matrix (TYPE 3) held in memory — the in-app manual-entry grid
+    (issue #16). Must carry the exact same dict shape as
+    :func:`ExcelParser.parse_attendance_matrix`."""
+
+    def __init__(self, matrix):
+        self._matrix = matrix
+
+    def matrix(self):
+        return self._matrix

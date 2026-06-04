@@ -52,10 +52,14 @@ class Config:
         except Exception as e:
              raise ValueError(f"Error reading configuration: {e}")
 
-    def validate(self):
+    def validate(self, require_file=True):
         """
         Validates the current configuration based on the selected TYPE.
         Returns a list of missing or invalid parameter names.
+
+        ``require_file`` gates the UPLOADED_FILE_PATH check: it is required in the
+        Excel-file input mode but not in the manual-entry grid mode (issue #16),
+        where the input comes from an in-memory source instead of a file on disk.
         """
         errors = []
 
@@ -71,16 +75,16 @@ class Config:
 
         # Context-Aware Validations
         if self.TYPE == 1: # Login & Actions
-            if not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
+            if require_file and not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
             if not self.ACT_NU: errors.append("מספר פעילות (Activity Number)")
             if not self.ACT_DESCRIPTION: errors.append("תיאור פעילות (Description)")
 
         elif self.TYPE == 2: # Candidates
-            if not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
-            
+            if require_file and not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
+
         elif self.TYPE == 3: # Attendance Matrix
-            if not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
-            
+            if require_file and not self.UPLOADED_FILE_PATH: errors.append("נתיב לקובץ אקסל")
+
         return errors
 
     def reload(self):

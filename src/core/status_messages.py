@@ -28,6 +28,9 @@ class Status:
     # --- shared across all process types ------------------------------------
     NO_FILE = "בחר קובץ Excel כדי להתחיל"
     FILE_EMPTY = "הקובץ ריק — אין שורות לעיבוד"
+    # Manual-entry grid (issue #16): the input comes from the in-app table.
+    MANUAL_EMPTY = "הזן נתונים בטבלת ההזנה כדי להתחיל"
+    MANUAL_INVALID = "יש שורות פגומות בטבלה — תקן אותן כדי להריץ"
     SAVED = "ההגדרות נשמרו"
     LOGGING_IN = "מתחבר ל-Salesforce…"
     MFA_OK = "האימות הדו-שלבי עבר — מתחבר"

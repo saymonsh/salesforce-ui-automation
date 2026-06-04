@@ -7,6 +7,8 @@ from typing import Callable, Optional
 import flet as ft
 
 from src.core.config import config_instance as parm
+from src.core.status_messages import Status
+from src.ui.data_grid import DataGridView
 from src.ui.help_dialog import create_help_dialog
 from src.ui.theme import Color, Font, Radius, Space, Term, Type, apply_theme
 
@@ -53,9 +55,13 @@ class MainView:
         self.settings_container = None
         self._settings_dialog = None
         self._feed_dialog = None
+        self._grid_dialog = None
         self._logs_has_content = False
         self._running = False
         self._has_file = False
+        # Input mode: "file" (Excel) or "manual" (the in-app data-entry grid, #16).
+        self._mode_value = "file"
+        self._mode_segments: dict[str, ft.Container] = {}
         self._on_run: Optional[Callable] = None
         self._on_stop: Optional[Callable] = None
         # Terminal output arrives from worker/chromedriver threads; queue it and
@@ -196,6 +202,32 @@ class MainView:
         )
         self.logs_holder = ft.Container(expand=True, content=self.logs_empty_view)
 
+        # --- Manual-entry grid (issue #16) --------------------------------------
+        self.data_grid = DataGridView(self.page, on_change=self._on_grid_change)
+        if self._type_value:
+            self.data_grid.rebuild_for_type(self._type_value)
+        self.manual_badge = ft.Container(
+            width=38, height=38, border_radius=Radius.PILL, alignment=ft.Alignment.CENTER,
+            bgcolor=Color.BRAND_TINT,
+            content=ft.Icon(ft.Icons.TABLE_CHART_OUTLINED, size=20, color=Color.BRAND),
+        )
+        self.manual_summary_text = ft.Text(
+            "אין נתונים", size=Type.BODY[0], color=Color.TEXT_PRIMARY,
+            weight=ft.FontWeight.W_600, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True,
+        )
+        self.manual_sub_text = ft.Text(
+            "הזנה ידנית בטבלה", size=Type.CAPTION[0], color=Color.TEXT_TERTIARY,
+            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+        )
+        self.open_grid_button = ft.TextButton(
+            "פתח טבלה", icon=ft.Icons.EDIT_NOTE_ROUNDED,
+            style=ft.ButtonStyle(color=Color.BRAND, padding=Space.SM),
+            on_click=lambda _: self.show_grid_dialog(),
+        )
+        # Holder swapped between the file zone and the manual zone by input mode.
+        self._input_zone_holder = ft.Container()
+        self._update_input_zone()  # seed with the default (file) zone — no update() pre-mount
+
     # --------------------------------------------------------------- window controls
     def _win_minimize(self, e):
         self.page.window.minimized = True
@@ -259,6 +291,9 @@ class MainView:
         except Exception as ex:  # pragma: no cover - disk/parse failure
             self.show_alert("שגיאה", f"שמירת סוג התהליך נכשלה:\n{ex}", "error")
             return
+        # The manual-entry grid's columns are derived from TYPE — keep it in sync.
+        self.data_grid.rebuild_for_type(key)
+        self._refresh_manual_zone()
         label = _TYPE_META.get(key, ("", None))[0]
         self.status_text.value = f"מצב: {label}"
         self.status_text.color = Color.TEXT_SECONDARY
@@ -269,6 +304,64 @@ class MainView:
         """Re-sync the selector after the settings dialog may have changed TYPE."""
         self._type_value = str(parm.TYPE) if parm.TYPE is not None else ""
         self._style_type_segments()
+        # The grid columns are derived from TYPE — keep it in sync.
+        self.data_grid.rebuild_for_type(self._type_value)
+        self._refresh_manual_zone()
+
+    # --------------------------------------------------------------- input mode
+    def _build_mode_selector(self) -> ft.Container:
+        meta = [("file", "קובץ Excel", ft.Icons.UPLOAD_FILE_ROUNDED),
+                ("manual", "הזנה ידנית", ft.Icons.EDIT_NOTE_ROUNDED)]
+        segs: list[ft.Control] = []
+        for key, label, icon in meta:
+            seg = ft.Container(
+                data=key, expand=True, ink=True, border_radius=Radius.MD,
+                padding=ft.padding.symmetric(vertical=Space.XS + 2, horizontal=Space.XS),
+                alignment=ft.Alignment.CENTER, on_click=self._mode_clicked,
+                content=ft.Row(
+                    spacing=Space.XS, alignment=ft.MainAxisAlignment.CENTER,
+                    controls=[
+                        ft.Icon(icon, size=16),
+                        ft.Text(label, size=Type.CAPTION[0], weight=ft.FontWeight.W_600),
+                    ],
+                ),
+            )
+            self._mode_segments[key] = seg
+            segs.append(seg)
+        bar = ft.Container(
+            bgcolor=_GLASS_INSET, border_radius=Radius.LG, padding=4,
+            content=ft.Row(spacing=4, controls=segs),
+        )
+        self._style_mode_segments()
+        return bar
+
+    def _style_mode_segments(self) -> None:
+        for key, seg in self._mode_segments.items():
+            on = key == self._mode_value
+            seg.bgcolor = Color.BRAND if on else ft.Colors.TRANSPARENT
+            icon, text = seg.content.controls
+            icon.color = Color.TEXT_ON_BRAND if on else Color.TEXT_SECONDARY
+            text.color = Color.TEXT_ON_BRAND if on else Color.TEXT_SECONDARY
+            text.weight = ft.FontWeight.W_700 if on else ft.FontWeight.W_600
+
+    def _mode_clicked(self, e: ft.ControlEvent) -> None:
+        if self._running:
+            return  # don't switch input source mid-run
+        key = e.control.data
+        if key == self._mode_value:
+            return
+        self._mode_value = key
+        self._style_mode_segments()
+        self._update_input_zone()
+        self._safe_update()
+
+    def _update_input_zone(self) -> None:
+        """Show the file zone or the manual zone for the current input mode."""
+        if self._mode_value == "manual":
+            self._input_zone_holder.content = self._build_manual_zone()
+            self._refresh_manual_zone()
+        else:
+            self._input_zone_holder.content = self._build_file_zone()
 
     # ------------------------------------------------------------------ file zone
     def _build_file_zone(self) -> ft.Container:
@@ -288,6 +381,56 @@ class MainView:
                 ],
             ),
         )
+
+    # ------------------------------------------------------------------ manual zone
+    def _build_manual_zone(self) -> ft.Container:
+        return ft.Container(
+            bgcolor=_GLASS_CHIP, border_radius=Radius.LG,
+            border=ft.border.all(1, ft.Colors.with_opacity(0.5, "#ffffff")),
+            padding=ft.padding.symmetric(horizontal=Space.MD, vertical=Space.SM),
+            content=ft.Row(
+                spacing=Space.MD, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    self.manual_badge,
+                    ft.Column(
+                        spacing=0, expand=True, tight=True,
+                        controls=[self.manual_summary_text, self.manual_sub_text],
+                    ),
+                    self.open_grid_button,
+                ],
+            ),
+        )
+
+    def _refresh_manual_zone(self) -> None:
+        """Mirror the grid's state into the manual-zone chip (summary + badge)."""
+        empty = self.data_grid.is_empty()
+        valid = self.data_grid.is_valid()
+        self.manual_summary_text.value = self.data_grid.summary()
+        if empty:
+            self.manual_sub_text.value = "הזנה ידנית בטבלה"
+            self.manual_sub_text.color = Color.TEXT_TERTIARY
+            self.manual_badge.bgcolor = Color.BRAND_TINT
+            self.manual_badge.content.name = ft.Icons.TABLE_CHART_OUTLINED
+            self.manual_badge.content.color = Color.BRAND
+        elif valid:
+            self.manual_sub_text.value = "מוכן להרצה"
+            self.manual_sub_text.color = Color.SUCCESS
+            self.manual_badge.bgcolor = ft.Colors.with_opacity(0.18, Color.SUCCESS)
+            self.manual_badge.content.name = ft.Icons.TASK_ALT_ROUNDED
+            self.manual_badge.content.color = Color.SUCCESS
+        else:
+            self.manual_sub_text.value = "יש לתקן שורות פגומות"
+            self.manual_sub_text.color = Color.WARNING
+            self.manual_badge.bgcolor = ft.Colors.with_opacity(0.18, Color.WARNING)
+            self.manual_badge.content.name = ft.Icons.WARNING_AMBER_ROUNDED
+            self.manual_badge.content.color = Color.WARNING
+
+    def _on_grid_change(self) -> None:
+        # Called from the grid on every edit. Only the chip (behind the dialog)
+        # needs syncing; guard the update so it's a no-op when not mounted.
+        if self._mode_value == "manual":
+            self._refresh_manual_zone()
+            self._safe_update()
 
     # ------------------------------------------------------------------ hero
     def _build_hero(self) -> ft.Control:
@@ -476,7 +619,8 @@ class MainView:
                     topbar,
                     ft.Divider(color=ft.Colors.with_opacity(0.5, Color.BORDER), height=1),
                     self._build_type_selector(),
-                    self._build_file_zone(),
+                    self._build_mode_selector(),
+                    self._input_zone_holder,
                     self._build_hero(),
                     self.linear,
                 ],
@@ -738,6 +882,79 @@ class MainView:
     def _on_feed_dismissed(self) -> None:
         # Barrier/Esc dismissal: just drop our reference (Flet already closed it).
         self._feed_dialog = None
+
+    # ------------------------------------------------------------- manual grid
+    @property
+    def input_mode(self) -> str:
+        return self._mode_value
+
+    def show_grid_dialog(self) -> None:
+        """Open the manual-entry table as a modal editor (issue #16)."""
+        if self._grid_dialog is not None:
+            return
+        close_btn = ft.IconButton(
+            ft.Icons.CLOSE_ROUNDED, icon_color=Color.TEXT_SECONDARY, icon_size=20,
+            tooltip="סגור", on_click=lambda _: self._close_grid_dialog(),
+        )
+        self._grid_dialog = ft.AlertDialog(
+            modal=True, rtl=True,
+            # Same translucent glass as the settings dialog. The main panel is
+            # hidden below so only the background sits behind the glass — without
+            # that, the panel's own glass shows through and washes the dialog out.
+            bgcolor=ft.Colors.with_opacity(0.62, "#ffffff"),
+            barrier_color=ft.Colors.with_opacity(0.06, "#000000"),
+            shape=ft.RoundedRectangleBorder(radius=Radius.LG),
+            content_padding=0,
+            on_dismiss=lambda _: self._on_grid_dismissed(),
+            content=ft.Container(
+                width=980, height=620, rtl=True,
+                border=ft.border.all(1, ft.Colors.with_opacity(0.6, "#ffffff")),
+                border_radius=Radius.LG,
+                content=ft.Column(spacing=0, controls=[
+                    ft.Container(
+                        padding=ft.padding.only(top=Space.SM, left=Space.SM, right=Space.SM),
+                        content=ft.Row([close_btn], alignment=ft.MainAxisAlignment.END),
+                    ),
+                    ft.Container(expand=True, content=self.data_grid.build_surface()),
+                ]),
+            ),
+        )
+        # Hide the main panel so only the background shows behind the glass dialog.
+        if getattr(self, "_console_row", None) is not None:
+            self._console_row.visible = False
+        self.page.show_dialog(self._grid_dialog)
+        self._safe_update()
+
+    def _close_grid_dialog(self) -> None:
+        if self._grid_dialog is not None:
+            self._grid_dialog.open = False
+            self.page.pop_dialog()
+            self._grid_dialog = None
+        # Restore the main panel that was hidden while the grid was open.
+        if getattr(self, "_console_row", None) is not None:
+            self._console_row.visible = True
+        self.data_grid.detach()
+        self._refresh_manual_zone()
+        self._safe_update()
+
+    def _on_grid_dismissed(self) -> None:
+        self._grid_dialog = None
+        if getattr(self, "_console_row", None) is not None:
+            self._console_row.visible = True
+        self.data_grid.detach()
+        self._refresh_manual_zone()
+        self._safe_update()
+
+    def get_manual_source(self):
+        """Resolve the manual grid into a data source, or None (with an alert)."""
+        if self.data_grid.is_empty():
+            self.show_alert("אין נתונים", Status.MANUAL_EMPTY, "warning")
+            return None
+        reasons = self.data_grid.invalid_reasons()
+        if reasons:
+            self.show_alert("שורות פגומות", Status.MANUAL_INVALID + "\n\n• " + "\n• ".join(reasons), "warning")
+            return None
+        return self.data_grid.to_source()
 
     # ------------------------------------------------------------- settings modal
     def show_settings_view(self, settings_container) -> None:
