@@ -2,11 +2,14 @@ import threading
 import pandas as pd
 import pyotp
 from abc import ABC, abstractmethod
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from src.automation.driver_manager import DriverManager
 from src.automation import selectors as S
 from src.core.config import config_instance as parm
 from src.core.exceptions import StopRequestedException
+from src.core.logger import logger
+from src.core.status_messages import Status
 from src.core.utils import interruptible_find_element
 
 
@@ -19,7 +22,7 @@ class BaseProcessor(ABC):
     def stop(self):
         """Signals the processor to stop execution."""
         self.stop_event.set()
-        self.update_ui(status="Stopping...")
+        self.update_ui(status=Status.STOPPING)
 
     def check_for_stop(self):
         if self.stop_event.is_set():
@@ -37,12 +40,14 @@ class BaseProcessor(ABC):
     def process(self, *args, **kwargs):
         pass
 
-    def update_ui(self, status=None, progress=None, error=None):
-        if self.signals:
-            if status:
-                self.signals.status.emit(status)
-            if error:
-                pass
+    def update_ui(self, status=None, level=None):
+        """Emit a high-level milestone on the status channel (issue #12).
+
+        `level` (None / "success" / "warning" / "error") drives the status
+        field's styling. Technical detail belongs on the debug channel (logger).
+        """
+        if self.signals and status:
+            self.signals.status.emit(status, level)
 
     # =========================================================================
     # Shared Driver Lifecycle
@@ -77,31 +82,73 @@ class BaseProcessor(ABC):
         secret_key = parm.SECRET_KEY
         totp = pyotp.TOTP(secret_key)
 
-        self.check_for_stop()
-        self.driver.get(url)
+        # Persistent stage so a timeout anywhere in the login flow (no per-step
+        # logging happens during the blocking element waits) is classified as a
+        # login failure rather than a generic one.
+        logger.set_context(stage="login")
+        self.update_ui(status=Status.LOGGING_IN)
+        logger.info(f"navigating to {url}", stage="login")
 
-        self.check_for_stop()
-        self.driver.maximize_window()
+        try:
+            self.check_for_stop()
+            self.driver.get(url)
 
-        self.check_for_stop()
-        username = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_USERNAME_INPUT, check_stop_func=lambda: self.is_stopped)
-        username.send_keys(parm.USER_NAME)
+            self.check_for_stop()
+            self.driver.maximize_window()
 
-        self.check_for_stop()
-        password = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_PASSWORD_INPUT, check_stop_func=lambda: self.is_stopped)
-        password.send_keys(parm.PASSWORD)
+            self.check_for_stop()
+            username = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_USERNAME_INPUT, check_stop_func=lambda: self.is_stopped)
+            username.send_keys(parm.USER_NAME)
 
-        self.check_for_stop()
-        submit = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_SUBMIT_BUTTON, check_stop_func=lambda: self.is_stopped)
-        submit.click()
+            self.check_for_stop()
+            password = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_PASSWORD_INPUT, check_stop_func=lambda: self.is_stopped)
+            password.send_keys(parm.PASSWORD)
 
-        self.check_for_stop()
-        tc = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_TOTP_INPUT, check_stop_func=lambda: self.is_stopped)
-        tc.send_keys(totp.now())
+            self.check_for_stop()
+            submit = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_SUBMIT_BUTTON, check_stop_func=lambda: self.is_stopped)
+            submit.click()
 
-        self.check_for_stop()
-        save = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_TOTP_SAVE, check_stop_func=lambda: self.is_stopped)
-        save.click()
+            self.check_for_stop()
+            logger.debug("submitting TOTP code", stage="login")
+            tc = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_TOTP_INPUT, check_stop_func=lambda: self.is_stopped)
+            tc.send_keys(totp.now())
+
+            self.check_for_stop()
+            save = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_TOTP_SAVE, check_stop_func=lambda: self.is_stopped)
+            save.click()
+        except TimeoutException:
+            # An element never appeared. The most common real cause isn't a slow
+            # page — it's Salesforce refusing the login (security policy / blocked
+            # IP / bad credentials) and showing an error banner instead of
+            # advancing. Surface that banner's text so the operator sees the real
+            # reason (e.g. a VPN/IP block) rather than a bare timeout.
+            banner = self._read_login_error()
+            if banner:
+                logger.error(f"login blocked by Salesforce: {banner}", stage="login")
+                raise Exception(f"Salesforce login error: {banner}")
+            raise
+
+        logger.info("login OK — TOTP accepted", stage="login")
+        self.update_ui(status=Status.MFA_OK)
+        # Past login now; later phases set their own stage, but reset here so a
+        # post-login pre-loop failure isn't mis-blamed on the login step.
+        logger.set_context(stage="run")
+
+    def _read_login_error(self):
+        """Return the visible Salesforce login error banner text, or None.
+
+        Used only on the login failure path. Uses a plain (non-blocking)
+        find_elements — by this point the implicit wait is already 0 — so it
+        never adds latency or stalls the stop mechanism.
+        """
+        try:
+            for el in self.driver.find_elements(By.XPATH, S.LOGIN_ERROR_BANNER):
+                text = (el.text or "").strip()
+                if text:
+                    return text
+        except Exception:
+            return None
+        return None
 
     # =========================================================================
     # Shared Excel Reading
@@ -115,8 +162,9 @@ class BaseProcessor(ABC):
         excel_data = pd.read_excel(uploaded_file_path)
 
         if len(excel_data) == 0:
-            print("Excel file is empty.")
-            self.update_ui(status="File is empty", error=True)
+            logger.error("Excel file is empty — no rows to process", stage="run")
+            self.update_ui(status=Status.FILE_EMPTY, level="error")
             return None
 
+        logger.info(f"{len(excel_data)} rows loaded from Excel", stage="run")
         return excel_data

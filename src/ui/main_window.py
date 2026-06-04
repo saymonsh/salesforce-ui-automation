@@ -10,11 +10,21 @@ from src.core.config import config_instance as parm
 from src.ui.help_dialog import create_help_dialog
 from src.ui.theme import Color, Font, Radius, Space, Type, apply_theme
 
-# Log line colors (on the translucent dark feed).
+# Log line colors (on the translucent dark feed), keyed by debug-channel level.
 _LOG_DEFAULT = "#ededed"
 _LOG_ERROR = "#ff8a80"
+_LOG_WARNING = "#ffd27d"
+_LOG_DEBUG = "#a9b4c2"
 _LOG_SUCCESS = "#7ee2a8"
 _HAIRLINE = ft.Colors.with_opacity(0.18, "#ffffff")
+
+# Map a debug-channel severity to its feed line color. "OUT"/"ERR" come from the
+# raw stdout/stderr tee (chromedriver, tracebacks); the rest from the logger.
+_LEVEL_COLORS = {
+    "ERROR": _LOG_ERROR, "ERR": _LOG_ERROR,
+    "WARNING": _LOG_WARNING,
+    "DEBUG": _LOG_DEBUG,
+}
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _BG_PATH = os.path.join(_ROOT, "assets", "icons", "bg.png")
@@ -32,18 +42,6 @@ _PANEL_SHADOW = ft.BoxShadow(
 _PANEL_WIDTH = 440
 _RING_TRACK = ft.Colors.with_opacity(0.14, "#2b2b2b")
 _LINEAR_TRACK = ft.Colors.with_opacity(0.16, "#2b2b2b")
-
-# Console lines that are infrastructure boilerplate, not real per-action status.
-# Skipped when mirroring the latest console line into the status field.
-_STATUS_NOISE = (
-    "DevTools listening", "Starting ChromeDriver", "ChromeDriver was started",
-    "Only local connections", "remote debugging", "ws://", "[",
-)
-
-
-def _is_status_noise(line: str) -> bool:
-    l = line.strip()
-    return (not l) or l.startswith(_STATUS_NOISE) or "ws://127.0.0.1" in l
 
 
 # Process types: key -> (label, icon). Drives the inline type selector and is
@@ -69,7 +67,8 @@ class MainView:
         self._on_stop: Optional[Callable] = None
         # Terminal output arrives from worker/chromedriver threads; queue it and
         # drain on the UI loop in batches (decoupled = no loop flooding/freeze).
-        self._feed_q: "queue.Queue[tuple[str, bool]]" = queue.Queue()
+        # Each item is (text, level) where level is a debug-channel severity.
+        self._feed_q: "queue.Queue[tuple[str, str]]" = queue.Queue()
 
         self._build_page()
         self._build_controls()
@@ -504,15 +503,27 @@ class MainView:
             self.action_circle.shadow.color = ft.Colors.with_opacity(0.35, Color.SUCCESS)
             self.action_circle.content = self.play_icon  # run finished → idle triangle
             self.hero_value.value = "הושלם"
+        elif level == "warning":
+            # Work completed but a manual action is still required (TYPE 2 end
+            # state). Amber, full ring, but distinct from a clean success.
+            self.status_text.color = self.hero_value.color = Color.WARNING
+            self.progress_ring.color = self.linear.color = Color.WARNING
+            self.progress_ring.value = self.linear.value = 1
+            self.status_dot.bgcolor = Color.WARNING
+            self.action_circle.content = self.play_icon
+            self.hero_value.value = "נדרשת פעולה"
         else:
             self.status_text.color = Color.TEXT_SECONDARY
             self.status_dot.bgcolor = Color.BRAND if self._running else Color.TEXT_TERTIARY
         self._safe_update()
 
-    # Called from any thread (worker / chromedriver pump). Thread-safe, cheap.
-    def enqueue_terminal_line(self, text: str, is_err: bool = False) -> None:
+    # Called from any thread (worker log channel / stdout-stderr tee / chromedriver
+    # pump). Thread-safe, cheap. `level` is a debug-channel severity; the legacy
+    # `is_err` bool maps to "ERR"/"OUT" for the raw stdout/stderr tee.
+    def enqueue_terminal_line(self, text: str, is_err: bool = False, level: str | None = None) -> None:
+        lvl = level or ("ERR" if is_err else "OUT")
         try:
-            self._feed_q.put_nowait((text, is_err))
+            self._feed_q.put_nowait((text, lvl))
         except Exception:
             pass
 
@@ -531,25 +542,15 @@ class MainView:
             if not self._logs_has_content:
                 self.logs_holder.content = self.logs_list
                 self._logs_has_content = True
-            for text, is_err in batch:
+            for text, level in batch:
                 self.logs_list.controls.append(ft.Text(
-                    text, color=_LOG_ERROR if is_err else _LOG_DEFAULT,
+                    text, color=_LEVEL_COLORS.get(level, _LOG_DEFAULT),
                     size=Type.CAPTION[0], font_family=Font.MONO,
                     text_align=ft.TextAlign.LEFT, selectable=True))
             if len(self.logs_list.controls) > 600:  # cap history
                 del self.logs_list.controls[:-600]
-            # Mirror the latest meaningful console line into the status field so
-            # every action the run prints shows up as live status (covers all
-            # process types, including TYPE 1/2 that emit no explicit status).
-            if self._running:
-                live = next(
-                    (t for t, e in reversed(batch) if not e and not _is_status_noise(t)),
-                    None,
-                )
-                if live:
-                    self.status_text.value = live.strip()[:90]
-                    self.status_text.color = Color.TEXT_SECONDARY
-                    self.status_dot.bgcolor = Color.BRAND
+            # No status mirroring here: the status field is driven solely by the
+            # clean status channel (issue #12). The feed is the debug channel.
             self._safe_update()
 
     def set_progress(self, value: float, current: int | None = None, total: int | None = None) -> None:
@@ -699,8 +700,12 @@ class MainView:
         icon_color = Color.DANGER if level in ("error", "critical") else Color.BRAND
         dialog = ft.AlertDialog(
             modal=True,
+            # Dialogs render in an overlay that does NOT inherit page.rtl, so set
+            # it explicitly — otherwise mixed Hebrew/Latin text (e.g. "…ל-VPN")
+            # wraps and aligns as LTR. Matches the settings/feed dialogs.
+            rtl=True,
             title=ft.Row(spacing=Space.SM, controls=[ft.Icon(icon, color=icon_color), ft.Text(title, color=Color.TEXT_PRIMARY)]),
-            content=ft.Text(message, selectable=True, color=Color.TEXT_PRIMARY),
+            content=ft.Text(message, selectable=True, color=Color.TEXT_PRIMARY, text_align=ft.TextAlign.RIGHT),
             actions=[ft.TextButton("סגור", on_click=lambda _: self._close_dialog(dialog))],
             actions_alignment=ft.MainAxisAlignment.END,
         )

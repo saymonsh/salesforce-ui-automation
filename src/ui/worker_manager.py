@@ -4,6 +4,7 @@ from src.automation.processors.attendance_processor import AttendanceProcessor
 from src.automation.processors.candidate_processor import CandidateProcessor
 from src.automation.processors.login_processor import LoginProcessor
 from src.core.config import config_instance as parm
+from src.core.status_messages import Status
 from src.ui.worker import AutomationWorker
 
 
@@ -17,7 +18,7 @@ class WorkerManager:
 
     def start(self, uploaded_file_path):
         if uploaded_file_path is None and parm.TYPE != 3:
-            self.main_view.set_status("File not selected")
+            self.main_view.set_status(Status.NO_FILE)
             return False
 
         errors = parm.validate()
@@ -31,7 +32,6 @@ class WorkerManager:
         elif parm.TYPE == 2:
             self.worker = AutomationWorker(CandidateProcessor, uploaded_file_path)
         elif parm.TYPE == 3:
-            print("Processing attendance matrix")
             self.worker = AutomationWorker(AttendanceProcessor, uploaded_file_path)
         else:
             self.main_view.show_alert("שגיאה", f"{parm.TYPE} איננו תהליך חוקי", "critical")
@@ -43,12 +43,13 @@ class WorkerManager:
 
         return True
 
-    def connect_signals(self, on_started, on_finished, on_item_processed, on_status):
+    def connect_signals(self, on_started, on_finished, on_item_processed, on_status, on_log):
         if self.worker:
             self.worker.signals.started.connect(on_started)
             self.worker.signals.finished.connect(on_finished)
             self.worker.signals.item_processed.connect(on_item_processed)
             self.worker.signals.status.connect(on_status)
+            self.worker.signals.log.connect(on_log)
 
     def start_thread(self):
         if self.worker:
@@ -57,7 +58,7 @@ class WorkerManager:
 
     def stop(self):
         if self.worker:
-            self.main_view.set_status("Stopping...")
+            self.main_view.set_status(Status.STOPPING)
             self.worker.stop()
             self.main_view.disable_stop()
 

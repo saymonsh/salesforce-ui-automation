@@ -5,6 +5,8 @@ from src.automation.processors.base_processor import BaseProcessor
 from src.automation import selectors as S
 from src.core.config import config_instance as parm
 from src.core.exceptions import StopRequestedException
+from src.core.logger import logger
+from src.core.status_messages import Status
 from src.core.utils import interruptible_find_element
 
 
@@ -25,16 +27,20 @@ class CandidateProcessor(BaseProcessor):
         init_btn = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_INITIAL_BUTTON, check_stop_func=lambda: self.is_stopped)
         init_btn.click()
 
-        print(f"Total rows in Excel: {len(excel_data)}")
+        total = len(excel_data)
         if self.signals:
-            self.signals.started.emit(len(excel_data))
+            self.signals.started.emit(total)
 
         for index, row in excel_data.iterrows():
             self.check_for_stop()
 
             id_number = row['תעודות זהות']
-            
+
             id_number = int(id_number)
+            n = index + 1
+            logger.set_context(stage="candidate", row=n)
+            self.update_ui(status=Status.t2_processing(n, total, id_number))
+            logger.info(f"adding candidate id {id_number}", stage="candidate", row=n)
             self.check_for_stop()
             
             pyperclip.copy(str(id_number))
@@ -56,5 +62,7 @@ class CandidateProcessor(BaseProcessor):
             
             if self.signals:
                 self.signals.item_processed.emit()
-        
-        self.update_ui(status="Please click 'next' to continue")
+
+        logger.reset_context()
+        # End state requires a manual "next" in Salesforce → warning, not success.
+        self.update_ui(status=Status.t2_done(total), level="warning")

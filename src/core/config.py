@@ -43,6 +43,10 @@ class Config:
 
             self.UPLOADED_FILE_PATH = self.parser.get('Paths', 'UPLOADED_FILE_PATH', fallback='')
 
+            # Debug verbosity for the logging channel (issue #12). When False,
+            # DEBUG-level lines (selectors, payloads, timings) are suppressed.
+            self.DEBUG_LOGGING = self.parser.getboolean('Logging', 'DEBUG', fallback=False)
+
         except KeyError as e:
             raise KeyError(f"Missing configuration key: {e}")
         except Exception as e:

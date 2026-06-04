@@ -1,5 +1,8 @@
 import json
 
+from src.core.logger import logger
+
+
 class SalesforceApiClient:
     def __init__(self, driver):
         self.driver = driver
@@ -147,12 +150,9 @@ class SalesforceApiClient:
         }
         
         data = self._execute_aura_request('/aura?r=1&aura.RelatedListUi.postRelatedListRecords=1', payload)
-        
-        print("\n=== GET PARTICIPANTS RESPONSE ===")
-        import json
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-        print("=================================\n")
-        
+
+        logger.debug(f"getParticipants response: {json.dumps(data, ensure_ascii=False)}", stage="aura")
+
         mapping = {}
         try:
             action = data.get('actions', [{}])[0]
@@ -206,12 +206,9 @@ class SalesforceApiClient:
         }
         
         data = self._execute_aura_request('/aura?r=2&aura.RecordUi.createRecord=1', payload)
-        
-        print("\n=== CREATE SESSION RESPONSE ===")
-        import json
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-        print("=================================\n")
-        
+
+        logger.debug(f"createRecord response: {json.dumps(data, ensure_ascii=False)}", stage="aura")
+
         try:
             action = data.get('actions', [{}])[0]
             if action.get('state') == 'ERROR':
@@ -285,7 +282,7 @@ class SalesforceApiClient:
         except Exception as e:
             raise Exception(f"Error parsing startFlow response: {e}")
 
-        print(f"\n=== START SD FLOW: created {len(delivery_records)} service delivery record(s) ===\n")
+        logger.debug(f"startFlow → {len(delivery_records)} service delivery record(s)", stage="aura")
         return serialized_state, delivery_records
 
     def finish_create_sd_flow(self, serialized_state, delivery_records):
@@ -345,7 +342,7 @@ class SalesforceApiClient:
         except Exception as e:
             raise Exception(f"Error parsing navigateFlow response: {e}")
 
-        print("\n=== FINISH SD FLOW: interview FINISHED ===\n")
+        logger.debug("navigateFlow → interview FINISHED", stage="aura")
 
     def report_attendance(self, records_to_update):
         if not records_to_update:
@@ -371,12 +368,9 @@ class SalesforceApiClient:
         }
         
         data = self._execute_aura_request('/aura?r=3&aura.ApexAction.execute=1', payload)
-        
-        print("\n=== REPORT ATTENDANCE RESPONSE ===")
-        import json
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-        print("=================================\n")
-        
+
+        logger.debug(f"updateServiceDelivery response: {json.dumps(data, ensure_ascii=False)}", stage="aura")
+
         try:
             action = data.get('actions', [{}])[0]
             state = action.get('state')

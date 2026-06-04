@@ -4,6 +4,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
 from src.core.config import config_instance as parm
+from src.core.logger import logger
 from src.automation import selectors as S
 
 # Original logic from actions.py
@@ -32,29 +33,27 @@ def perform_search(driver, id_number, check_stop=None):
     verify_running(check_stop)
     smart_sleep(3, check_stop)
 
-    print(f"DEBUG [perform_search]: Sent search. Waiting for search result link... (Timeout: 30s)")
-    print(f"DEBUG [perform_search]: Looking for XPath: {S.SEARCH_RESULT_LINK}")
+    logger.debug(f"sent search for {id_number}, waiting SEARCH_RESULT_LINK (timeout 30s)", stage="search")
     try:
         # Wait for element and click
         pa = interruptible_wait(
-            driver, 
+            driver,
             ec.element_to_be_clickable((By.XPATH, S.SEARCH_RESULT_LINK)),
             timeout=30,
             check_stop_func=check_stop
         )
-        print("DEBUG [perform_search]: Element found and clickable. Clicking...")
+        logger.debug("SEARCH_RESULT_LINK clickable — clicking", stage="search")
         pa.click()
-        print("DEBUG [perform_search]: Clicked successfully.")
+        logger.debug("result link clicked", stage="search")
     except Exception as e:
-        print(f"DEBUG [perform_search]: Exception occurred while waiting for link: {str(e)}")
+        logger.error(f"SEARCH_RESULT_LINK not found: {e}", stage="search")
         try:
             driver.save_screenshot("debug_search_error.png")
-            print("DEBUG [perform_search]: Saved screenshot to debug_search_error.png")
             with open("debug_page_source.html", "w", encoding="utf-8") as f:
                 f.write(driver.page_source)
-            print("DEBUG [perform_search]: Saved page source to debug_page_source.html")
+            logger.debug("saved debug_search_error.png + debug_page_source.html", stage="search")
         except Exception as screenshot_e:
-            print(f"DEBUG [perform_search]: Failed to save debug artifacts: {str(screenshot_e)}")
+            logger.warning(f"failed to save debug artifacts: {screenshot_e}", stage="search")
         raise
 
     smart_sleep(3, check_stop)

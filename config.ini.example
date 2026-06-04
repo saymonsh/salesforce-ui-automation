@@ -15,3 +15,9 @@ NUMBER = 30
 
 [Paths]
 UPLOADED_FILE_PATH = /path/to/your/file.xlsx
+
+[Logging]
+# Verbose debug channel: when true, the activity feed/console show DEBUG-level
+# detail (selectors clicked, Aura payloads/responses, step timings). The
+# high-level Hebrew status field is unaffected either way.
+DEBUG = false

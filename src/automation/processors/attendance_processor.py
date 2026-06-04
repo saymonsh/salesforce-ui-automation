@@ -8,6 +8,8 @@ from src.automation.excel_parser import ExcelParser
 from src.automation.api_client import SalesforceApiClient
 from src.core.config import config_instance as parm
 from src.core.exceptions import StopRequestedException
+from src.core.logger import logger
+from src.core.status_messages import Status
 
 # Excel times are entered in Israel local time; Salesforce datetime fields expect UTC.
 _IL_TZ = ZoneInfo("Asia/Jerusalem")
@@ -38,15 +40,19 @@ class AttendanceProcessor(BaseProcessor):
             if not match:
                 raise ValueError("לא ניתן לחלץ recordId מתוך הכתובת המוגדרת ב-config.ini")
             parent_record_id = match.group(1)
+            logger.info(f"parent service schedule {parent_record_id}", stage="attendance")
 
             # 2. Parse Excel
-            self.update_ui(status="קורא קובץ אקסל...")
             excel_data = ExcelParser.parse_attendance_matrix(uploaded_file_path)
-            
+            logger.info(
+                f"matrix parsed: {len(excel_data['participants'])} participants, "
+                f"{len(excel_data['dates'])} dates",
+                stage="attendance",
+            )
+
             verify_running(lambda: self.is_stopped)
 
             # 3. Setup Driver & Login
-            self.update_ui(status="מתחבר לסיילספורס...")
             self._setup_driver()
             
             # --- XHR/Fetch Sniffer Injection ---
@@ -97,34 +103,42 @@ class AttendanceProcessor(BaseProcessor):
             api_client = SalesforceApiClient(self.driver)
 
             # 4. Get Participants
-            self.update_ui(status="שולף רשימת משתתפים...")
             sfdc_participants_map = api_client.get_participants(parent_record_id)
-            
+            logger.info(f"participants fetched: {len(sfdc_participants_map)}", stage="aura")
+
             verify_running(lambda: self.is_stopped)
-            
+
             # Check for missing IDs
             missing_ids = []
             valid_participants = []
-            
+
             for p in excel_data['participants']:
                 id_num = p['id_number']
                 if id_num not in sfdc_participants_map:
                     missing_ids.append(id_num)
                 else:
                     valid_participants.append(p)
-                    
+
+            if missing_ids:
+                logger.warning(
+                    f"{len(missing_ids)} Excel ids not found in SF: {', '.join(missing_ids)}",
+                    stage="run",
+                )
+
             if not valid_participants:
                 raise ValueError("אף אחד ממספרי הזהות באקסל לא נמצא ברשימת המשתתפים בפעילות.")
 
             # 5. Process Dates
             total_dates = len(excel_data['dates'])
             sessions_created = 0
-            
+
             for idx, date_str in enumerate(excel_data['dates']):
                 verify_running(lambda: self.is_stopped)
 
-                percent = int((idx / total_dates) * 100)
-                self.update_ui(progress=percent, status=f"מעבד תאריך {date_str}...")
+                logger.set_context(stage="aura", date=date_str)
+                # Only the high-level "processing date X of Y" reaches the status
+                # field; the per-date sub-steps below go to the debug channel.
+                self.update_ui(status=Status.t3_processing(date_str, idx + 1, total_dates))
 
                 # Convert Israel-local Excel times to the UTC strings Salesforce expects.
                 start_dt_utc = _to_utc_iso(date_str, excel_data['start_time'])
@@ -132,10 +146,11 @@ class AttendanceProcessor(BaseProcessor):
 
                 # 1. Create the session (Pa_Service_Session__c).
                 # Human-like pause (mimics filling the "New Session" dialog).
-                self.update_ui(status=f"יוצר מפגש לתאריך {date_str}...")
+                logger.debug("create_session", stage="aura", date=date_str)
                 self._human_pause(2.0, 4.5)
                 session_id = api_client.create_session(parent_record_id, start_dt_utc, end_dt_utc)
                 sessions_created += 1
+                logger.debug(f"create_session → id={session_id}", stage="aura", date=date_str)
 
                 verify_running(lambda: self.is_stopped)
 
@@ -144,9 +159,13 @@ class AttendanceProcessor(BaseProcessor):
                 #    auto-created on session insert). The flow returns the created
                 #    records and a serialized state we must echo back to finish it.
                 # Human-like pause (mimics clicking the "Create Service Delivery" action).
-                self.update_ui(status="יוצר רשומות נוכחות...")
+                logger.debug("start_create_sd_flow", stage="aura", date=date_str)
                 self._human_pause(1.5, 3.5)
                 serialized_state, delivery_records = api_client.start_create_sd_flow(session_id)
+                logger.debug(
+                    f"start_create_sd_flow → {len(delivery_records)} delivery records",
+                    stage="aura", date=date_str,
+                )
 
                 verify_running(lambda: self.is_stopped)
 
@@ -164,7 +183,10 @@ class AttendanceProcessor(BaseProcessor):
                     sfdc_id = sfdc_participants_map[id_num]
 
                     if sfdc_id not in service_deliveries_map:
-                        print(f"Warning: No Service Delivery found for participant {id_num} ({sfdc_id}) in session {session_id}")
+                        logger.warning(
+                            f"no Service Delivery for id {id_num} ({sfdc_id}) — skipped",
+                            stage="aura", date=date_str,
+                        )
                         continue
 
                     delivery_id = service_deliveries_map[sfdc_id]
@@ -183,48 +205,41 @@ class AttendanceProcessor(BaseProcessor):
                 # Human-like pause that scales with the number of participants being
                 # marked (mimics ticking each row in the grid), capped so very large
                 # groups don't stall for minutes.
-                self.update_ui(status="מדווח נוכחות...")
                 n_marked = len(records_to_update)
+                logger.debug(f"report_attendance → {n_marked} to mark", stage="aura", date=date_str)
                 pause_min = min(3.0 + n_marked * 0.3, 30.0)
                 pause_max = min(6.0 + n_marked * 0.7, 45.0)
                 self._human_pause(pause_min, pause_max)
                 api_client.report_attendance(records_to_update)
+                logger.debug(f"report_attendance → done ({n_marked} marked)", stage="aura", date=date_str)
 
                 verify_running(lambda: self.is_stopped)
 
                 # 5. Finish the flow so its post-processing side-effects run
                 #    (e.g. activating the related Program Engagement).
                 # Human-like pause (mimics clicking "Next"/"Finish").
-                self.update_ui(status="מסיים תהליך נוכחות...")
                 self._human_pause(1.5, 3.0)
                 api_client.finish_create_sd_flow(serialized_state, delivery_records)
+                logger.debug("finish_create_sd_flow → done", stage="aura", date=date_str)
 
-            self.update_ui(progress=100, status="התהליך הסתיים בהצלחה!")
-            
-            # Prepare summary report
+            logger.reset_context()
+            logger.info(f"attendance complete: {sessions_created} sessions created", stage="run")
+
+            # Final operator status: the milestone in the status field, plus the
+            # missing-IDs note streamed to the debug channel above.
+            self.update_ui(status=Status.t3_done(sessions_created), level="success")
+            if missing_ids:
+                self.update_ui(status=Status.t3_missing(missing_ids), level="warning")
+
             report = f"נוצרו ודווחו בהצלחה {sessions_created} מפגשים.\n"
             if missing_ids:
                 report += f"\nשים לב: {len(missing_ids)} מספרי זהות מהאקסל לא אותרו בסיילספורס ולא עודכנו:\n"
                 report += ", ".join(missing_ids)
-                
+
             return report
 
-        except StopRequestedException:
-            print("Attendance Processor: Stopped by user.")
-            self.update_ui(status="הפעולה הופסקה על ידי המשתמש.")
-            self._force_close_driver()
-            return "הפעולה הופסקה על ידי המשתמש."
-
-        except Exception as e:
-            if self.is_stopped:
-                print("Attendance Processor: Stopped by user (via generic exception).")
-                self.update_ui(status="הפעולה הופסקה על ידי המשתמש.")
-                return "הפעולה הופסקה על ידי המשתמש."
-            else:
-                import traceback
-                traceback.print_exc()
-                self.update_ui(status="אירעה שגיאה", error=True)
-                return f"אירעה שגיאה בתהליך:\n{str(e)}"
-
         finally:
+            # StopRequestedException and genuine failures propagate to the worker,
+            # which resolves them on the (now clean) status channel. We only own
+            # the driver lifecycle here.
             self._cleanup_driver()

@@ -5,6 +5,7 @@ from time import sleep
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from src.core.config import config_instance as config
+from src.core.logger import logger
 
 class DriverManager:
     def __init__(self):
@@ -45,12 +46,17 @@ class DriverManager:
 
     @staticmethod
     def _pump_output(proc):
-        """Forward each chromedriver output line to stdout (→ activity feed)."""
+        """Forward each chromedriver output line into the debug channel.
+
+        chromedriver is a separate process; its raw lines are passed through
+        verbatim (no timestamp/level prefix) so the exact driver output is
+        visible in the feed/console.
+        """
         try:
             for line in proc.stdout:
                 line = line.rstrip("\n")
                 if line.strip():
-                    print(line)
+                    logger.debug(line, stage="chromedriver")
         except Exception:
             pass
 
@@ -63,14 +69,14 @@ class DriverManager:
         chrome_options.add_argument("--disable-notifications")
         chrome_options.add_argument("--disable-popup-blocking")
         chrome_options.add_argument("--disable-cookies")
-        print("Chrome options set.")
+        logger.debug("chrome options set", stage="driver")
 
         chromedriver_url = "http://127.0.0.1:9515"
         self.driver = webdriver.Remote(
             command_executor=chromedriver_url,
             options=chrome_options
         )
-        print("Chrome launched.")
+        logger.info("chrome launched", stage="driver")
         return self.driver
 
     def close_driver(self):
@@ -89,4 +95,4 @@ class DriverManager:
                 pass
             finally:
                 self.chromedriver_process = None
-        print("chrome driver has been terminated")
+        logger.debug("chromedriver terminated", stage="driver")

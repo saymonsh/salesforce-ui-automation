@@ -1,9 +1,20 @@
 # Logging channels — copy & format spec (issue #12)
 
-Reference for implementing [issue #12](https://github.com/saymonsh/salesforce-ui-automation/issues/12):
-separate the **user status** channel from the **debug** channel. This document is the
-*copy/format* deliverable — the actual wiring (a `log` channel on `WorkerSignals`,
-a central logger, replacing the ~32 `print()` calls) is the implementation step.
+Reference for [issue #12](https://github.com/saymonsh/salesforce-ui-automation/issues/12):
+separate the **user status** channel from the **debug** channel.
+
+**Status: implemented.** The wiring lives in:
+- `src/core/logger.py` — the central structured logger (debug channel). A
+  process-global `logger` singleton the worker binds to `WorkerSignals.log` for
+  each run; writes to the console (`sys.__stdout__`) and the activity feed.
+- `src/core/status_messages.py` — the `Status` namespace: every string below,
+  with the LRM isolates baked in (status channel).
+- `WorkerSignals.log` (`src/ui/worker.py`) carries debug lines; `WorkerSignals.status`
+  carries the high-level Hebrew milestones, now as `(text, level)`.
+- Verbosity is the `[Logging] DEBUG` flag in `config.ini` (default `false`),
+  read into `Config.DEBUG_LOGGING` and applied via `logger.set_verbose(...)`.
+
+The rest of this document is the *copy/format* deliverable it was built against.
 
 Two channels, deliberately different:
 
@@ -44,7 +55,7 @@ render left-to-right inside the Hebrew RTL line — keep them when interpolating
 | `mfa_ok` | האימות הדו-שלבי עבר — מתחבר |
 | `stopping` | עוצר… |
 | `stopped` | התהליך נעצר — ‪{done}‬ מתוך ‪{total}‬ הושלמו |
-| `fatal_error` | התהליך נכשל: ‪{reason}‬ (`error`) |
+| `fatal_error` | התהליך נכשל: {reason} (`error`) — `reason` is a *humanized* category, not the raw exception |
 
 **TYPE 1 — דיווח פעילות**
 
@@ -80,6 +91,32 @@ render left-to-right inside the Hebrew RTL line — keep them when interpolating
 - A new **`warning`** level is needed in `set_status` (`src/ui/main_window.py`) so the
   TYPE 2 end state renders as a warning, not a green success.
 - All interpolated numbers/IDs use LRM isolates (`‪ … ‬`) for correct RTL.
+
+### Error mapping (`src/core/error_messages.py`)
+
+The status field must never show a raw exception (`Message: Timed out after 30 sec`).
+`humanize_error(exc, stage)` classifies the failure and returns a **(title, hint)**:
+the *title* is short enough for the single-line status field; the *hint* is the
+actionable "what to do". Classification uses the run **stage** (from
+`logger.current_stage`) to disambiguate otherwise-identical errors — e.g. a timeout
+in `login` → credentials/MFA, but a timeout in `run`/`search` → slow site / DOM
+changed. Categories (title):
+
+| Trigger | Title |
+|---|---|
+| timeout @ `login` | ההתחברות ל-Salesforce נכשלה |
+| timeout / missing element elsewhere | רכיב במסך לא נמצא בזמן |
+| WebDriver / chromedriver (+ version mismatch) | הדפדפן (Chrome) לא הופעל / גרסת chromedriver לא תואמת |
+| Aura token/context, client out of sync, Salesforce/API error | אין תקשורת עם Salesforce / Salesforce החזיר שגיאה |
+| Excel: not found / bad format / missing column | קובץ ה-Excel … |
+| anything else | שגיאה לא צפויה |
+
+**Presentation.** On failure the status field shows `התהליך נכשל: {title}` (no `—`,
+so it doesn't truncate mid-hint), and a modal dialog ("התהליך נכשל") shows
+`{title}` + the full `{hint}` — the status field is single-line, so the dialog is
+what guarantees the hint is readable. The app's own Hebrew `ValueError`s (recordId,
+no participants) pass through verbatim as the title (no separate hint) and still
+get the dialog. The full exception + traceback always goes to the debug channel.
 
 ---
 
