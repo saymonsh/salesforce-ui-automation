@@ -21,46 +21,34 @@ Design notes:
 """
 from __future__ import annotations
 
-import re
 from typing import Callable, Optional
 
 import flet as ft
+import pyperclip
 
 from src.automation.data_source import MemoryMatrixSource, MemoryTabularSource
+# The column keys, attendance tokens, regexes and per-cell validators live in
+# paste_parser so the typed path (here) and the smart-paste path (#17) judge a
+# cell identically. Aliased to the private names this module already uses.
+from src.ui.paste_parser import (
+    ABSENT as _ABSENT,
+    COL_DATE as _COL_DATE,
+    COL_ID as _COL_ID,
+    COL_TYPE as _COL_TYPE,
+    PRESENT as _PRESENT,
+    RE_LOOSE_DATE as _RE_LOOSE_DATE,
+    RE_TIME as _RE_TIME,
+    digits as _digits,
+    id_valid,
+    normalize_display_date,
+    normalize_iso_date,
+    parse_matrix,
+    parse_tabular,
+    type_valid,
+)
 from src.ui.theme import Color, Font, Radius, Space, Type
 
-# Hebrew column keys the processors read — must match the Excel column headers.
-_COL_ID = "תעודות זהות"
-_COL_TYPE = "סוג"
-_COL_DATE = "תאריך"
-
-# Attendance cell statuses, identical to ExcelParser.parse_attendance_matrix.
-_PRESENT = "נוכח"
-_ABSENT = "לא נוכח"
-
-# TYPE 3 needs YYYY-MM-DD (AttendanceProcessor parses "%Y-%m-%d %H:%M").
-_RE_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-# TYPE 1 date is sent verbatim into the Salesforce field — accept the common
-# Israeli D/M/Y (any of / . -) or an ISO date; kept lenient on purpose.
-_RE_LOOSE_DATE = re.compile(r"^(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}|\d{4}-\d{2}-\d{2})$")
-_RE_TIME = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
-
 _CELL_BORDER = ft.Colors.with_opacity(0.6, "#ffffff")
-
-
-def _digits(value: str) -> str:
-    return "".join(ch for ch in (value or "") if ch.isdigit())
-
-
-def id_valid(value: str) -> bool:
-    """Digits-only, 1–9 chars — matches today's Excel behavior (no check-digit)."""
-    s = (value or "").strip()
-    return s.isdigit() and 1 <= len(s) <= 9
-
-
-def type_valid(value: str) -> bool:
-    s = (value or "").strip()
-    return s.isdigit() and 1 <= int(s) <= 6
 
 
 class DataGridView:
@@ -87,6 +75,7 @@ class DataGridView:
         # Built lazily when the dialog opens.
         self._body: Optional[ft.Container] = None
         self._summary_text: Optional[ft.Text] = None
+        self._note_text: Optional[ft.Text] = None  # inline smart-paste feedback line
 
     # ----------------------------------------------------------------- model rows
     @staticmethod
@@ -115,12 +104,19 @@ class DataGridView:
         try to ``update()`` an unmounted control. The data model is untouched."""
         self._body = None
         self._summary_text = None
+        self._note_text = None
 
     def build_surface(self) -> ft.Control:
         """Build (or rebuild) the editor surface for the dialog. Returns the root."""
         self._summary_text = ft.Text(
             self.summary(), size=Type.CAPTION[0], color=Color.TEXT_SECONDARY,
             weight=ft.FontWeight.W_600,
+        )
+        # Inline smart-paste feedback (issue #17). Hidden until a paste happens.
+        self._note_text = ft.Text(
+            "", size=Type.CAPTION[0], color=Color.TEXT_SECONDARY,
+            weight=ft.FontWeight.W_600, visible=False,
+            text_align=ft.TextAlign.RIGHT, selectable=True,
         )
         self._body = ft.Container(expand=True)
         self._render_body()
@@ -146,6 +142,7 @@ class DataGridView:
             content=ft.Column(spacing=Space.SM, expand=True, controls=[
                 header,
                 ft.Divider(color=ft.Colors.with_opacity(0.5, Color.BORDER), height=1),
+                self._note_text,
                 self._body,
             ]),
         )
@@ -207,7 +204,7 @@ class DataGridView:
         return ft.Column(spacing=Space.SM, expand=True, controls=[
             header,
             ft.Container(expand=True, content=rows_list),
-            ft.Row(controls=[add_btn]),
+            ft.Row(spacing=Space.SM, controls=[add_btn, self._paste_button()]),
         ])
 
     def _tabular_cell(self, row: dict, key: str, width: int) -> ft.TextField:
@@ -219,13 +216,20 @@ class DataGridView:
             focused_border_color=Color.BRAND, cursor_color=Color.BRAND,
             bgcolor=ft.Colors.with_opacity(0.5, "#ffffff"), color=Color.TEXT_PRIMARY,
         )
-        field.on_change = lambda e, r=row, k=key, f=field: self._on_cell_edit(e, r, k, f)
+        # on_change stores the value ONLY — no .update() while the field is
+        # focused (that resets the cursor in Flet 0.84). Validation/recolor runs
+        # on_blur, when the field is no longer focused. See flet-ui-gotchas.
+        field.on_change = lambda e, r=row, k=key: self._store(r, k, e.control.value)
+        field.on_blur = lambda e, r=row, k=key, f=field: self._validate_cell(r, k, f)
         self._style_cell(field, self._cell_ok(key, row.get(key, "")))
         return field
 
-    def _on_cell_edit(self, e, row: dict, key: str, field: ft.TextField) -> None:
-        row[key] = e.control.value
-        self._style_cell(field, self._cell_ok(key, row[key]))
+    def _store(self, target: dict, key: str, value: str) -> None:
+        """Commit a keystroke to the model without touching the view."""
+        target[key] = value
+
+    def _validate_cell(self, row: dict, key: str, field: ft.TextField) -> None:
+        self._style_cell(field, self._cell_ok(key, row.get(key, "")))
         field.update()
         self._refresh_summary()
         self._emit_change()
@@ -319,6 +323,7 @@ class DataGridView:
             ft.TextButton("הוסף תאריך", icon=ft.Icons.EVENT_ROUNDED,
                           style=ft.ButtonStyle(color=Color.BRAND),
                           on_click=lambda _e: self._add_date()),
+            self._paste_button(),
         ])
         return ft.Column(spacing=Space.SM, expand=True, controls=[
             times,
@@ -335,16 +340,19 @@ class DataGridView:
             focused_border_color=Color.BRAND, cursor_color=Color.BRAND,
             bgcolor=ft.Colors.with_opacity(0.5, "#ffffff"), color=Color.TEXT_PRIMARY,
         )
-        field.on_change = lambda e, w=which, f=field: self._on_time_edit(e, w, f)
+        field.on_change = lambda e, w=which: self._store_time(w, e.control.value)
+        field.on_blur = lambda e, w=which, f=field: self._validate_time(w, f)
         self._style_cell(field, not value.strip() or bool(_RE_TIME.match(value.strip())))
         return field
 
-    def _on_time_edit(self, e, which: str, field: ft.TextField) -> None:
-        val = e.control.value
+    def _store_time(self, which: str, value: str) -> None:
         if which == "start":
-            self._t3_start = val
+            self._t3_start = value
         else:
-            self._t3_end = val
+            self._t3_end = value
+
+    def _validate_time(self, which: str, field: ft.TextField) -> None:
+        val = self._t3_start if which == "start" else self._t3_end
         ok = not val.strip() or bool(_RE_TIME.match(val.strip()))
         self._style_cell(field, ok)
         field.update()
@@ -352,20 +360,26 @@ class DataGridView:
         self._emit_change()
 
     def _date_header_field(self, value: str, idx: int, width: int) -> ft.TextField:
+        # Shown to the user in Israeli dd.mm.yyyy; converted to ISO only when the
+        # matrix is built (see _build_matrix). Typed ISO is still accepted.
         field = ft.TextField(
-            value=value, width=width, hint_text="yyyy-mm-dd", text_size=Type.CAPTION[0],
+            value=value, width=width, hint_text="dd.mm.yyyy", text_size=Type.CAPTION[0],
             dense=True, content_padding=Space.XS, border_radius=Radius.SM,
             border_color=_CELL_BORDER, focused_border_color=Color.BRAND, cursor_color=Color.BRAND,
             bgcolor=ft.Colors.with_opacity(0.5, "#ffffff"), color=Color.TEXT_PRIMARY,
         )
-        field.on_change = lambda e, i=idx, f=field: self._on_date_edit(e, i, f)
-        self._style_cell(field, not value.strip() or bool(_RE_ISO_DATE.match(value.strip())))
+        field.on_change = lambda e, i=idx: self._store_date(i, e.control.value)
+        field.on_blur = lambda e, i=idx, f=field: self._validate_date(i, f)
+        self._style_cell(field, not value.strip() or normalize_iso_date(value) is not None)
         return field
 
-    def _on_date_edit(self, e, idx: int, field: ft.TextField) -> None:
-        val = e.control.value
-        self._t3_dates[idx] = val
-        ok = not val.strip() or bool(_RE_ISO_DATE.match(val.strip()))
+    def _store_date(self, idx: int, value: str) -> None:
+        if 0 <= idx < len(self._t3_dates):
+            self._t3_dates[idx] = value
+
+    def _validate_date(self, idx: int, field: ft.TextField) -> None:
+        val = self._t3_dates[idx] if 0 <= idx < len(self._t3_dates) else ""
+        ok = not val.strip() or normalize_iso_date(val) is not None
         self._style_cell(field, ok)
         field.update()
         self._refresh_summary()
@@ -379,14 +393,14 @@ class DataGridView:
             focused_border_color=Color.BRAND, cursor_color=Color.BRAND,
             bgcolor=ft.Colors.with_opacity(0.5, "#ffffff"), color=Color.TEXT_PRIMARY,
         )
-        field.on_change = lambda e, p=part, f=field: self._on_t3_id_edit(e, p, f)
+        field.on_change = lambda e, p=part: self._store(p, "id", e.control.value)
+        field.on_blur = lambda e, p=part, f=field: self._validate_t3_id(p, f)
         s = part.get("id", "").strip()
         self._style_cell(field, not s or id_valid(s))
         return field
 
-    def _on_t3_id_edit(self, e, part: dict, field: ft.TextField) -> None:
-        part["id"] = e.control.value
-        s = part["id"].strip()
+    def _validate_t3_id(self, part: dict, field: ft.TextField) -> None:
+        s = part.get("id", "").strip()
         self._style_cell(field, not s or id_valid(s))
         field.update()
         self._refresh_summary()
@@ -430,6 +444,76 @@ class DataGridView:
         self._body.update()
         self._refresh_summary()
         self._emit_change()
+
+    # --- smart paste (issue #17) -------------------------------------------
+    def _paste_button(self) -> ft.Control:
+        tip = ("הדבק טווח תאים שהועתק מ-Excel / Google Sheets. "
+               "כותרות מזוהות אוטומטית; שורות פגומות מסומנות באדום.")
+        return ft.TextButton(
+            "הדבק מ-Excel", icon=ft.Icons.CONTENT_PASTE_ROUNDED, tooltip=tip,
+            style=ft.ButtonStyle(color=Color.BRAND),
+            on_click=lambda _e: self._paste_clicked(),
+        )
+
+    def _paste_clicked(self) -> None:
+        try:
+            text = pyperclip.paste()
+        except Exception as ex:  # pragma: no cover - platform clipboard failure
+            self._set_note(f"קריאת הלוח נכשלה: {ex}", level="error")
+            return
+        if not (text and text.strip()):
+            self._set_note("אין מה להדביק — הלוח ריק", level="error")
+            return
+        if self._type == "3":
+            self._apply_matrix_paste(text)
+        elif self._type == "2":
+            self._apply_tabular_paste(text, ("id",), self._t2_rows, self._new_t2_row)
+        else:
+            self._apply_tabular_paste(text, ("id", "type", "date"),
+                                      self._t1_rows, self._new_t1_row)
+
+    def _apply_tabular_paste(self, text: str, fields, rows: list, factory) -> None:
+        res = parse_tabular(text, fields)
+        if not res.rows:
+            self._set_note(res.summary, level="error")
+            return
+        # Keep already-typed rows, drop the blank seed rows, append the paste.
+        kept = [r for r in rows if any((r.get(k) or "").strip() for k in fields)]
+        pasted = [{k: r.get(k, "") for k in fields} for r in res.rows]
+        combined = kept + pasted
+        rows[:] = combined if combined else [factory()]
+        self._render_body()
+        self._body.update()
+        self._refresh_summary()
+        self._emit_change()
+        self._set_note(res.summary, level=self._paste_level(res))
+
+    def _apply_matrix_paste(self, text: str) -> None:
+        res = parse_matrix(text)
+        if res.error:
+            self._set_note(res.error, level="error")
+            return
+        self._t3_start = res.start_time
+        self._t3_end = res.end_time
+        self._t3_dates = list(res.dates) or [""]
+        self._t3_parts = [{"id": p["id"], "present": list(p["present"])}
+                          for p in res.participants] or [self._new_t3_part()]
+        self._rerender_t3()
+        self._set_note(res.summary, level=self._paste_level(res))
+
+    @staticmethod
+    def _paste_level(res) -> str:
+        return "warn" if (res.flagged or res.warnings) else "ok"
+
+    def _set_note(self, message: str, level: str = "ok") -> None:
+        if self._note_text is None:
+            return
+        self._note_text.value = message
+        self._note_text.color = {
+            "ok": Color.SUCCESS, "warn": Color.WARNING, "error": Color.DANGER,
+        }.get(level, Color.TEXT_SECONDARY)
+        self._note_text.visible = bool(message)
+        self._note_text.update()
 
     # ----------------------------------------------------------------- shared bits
     def _delete_button(self, handler) -> ft.Control:
@@ -503,8 +587,8 @@ class DataGridView:
             reasons.append("שעת סיום חייבת להיות בפורמט HH:MM")
         for i, d in enumerate(self._t3_dates, 1):
             s = d.strip()
-            if s and not _RE_ISO_DATE.match(s):
-                reasons.append(f"תאריך בעמודה {i} חייב להיות בפורמט yyyy-mm-dd")
+            if s and normalize_iso_date(s) is None:
+                reasons.append(f"תאריך בעמודה {i} חייב להיות תאריך תקין (dd.mm.yyyy)")
         if not self._t3_filled_dates():
             reasons.append("נדרש לפחות תאריך אחד")
         for n, p in enumerate(self._t3_filled_parts(), 1):
@@ -548,7 +632,10 @@ class DataGridView:
         return MemoryTabularSource(rows)
 
     def _build_matrix(self) -> dict:
-        date_cols = self._t3_filled_dates()  # [(col_index, date_str)]
+        # The grid holds Israeli dd.mm.yyyy dates; the processor wants ISO
+        # (strptime "%Y-%m-%d %H:%M"), so convert here at the source boundary.
+        date_cols = [(col_index, normalize_iso_date(raw) or raw)
+                     for col_index, raw in self._t3_filled_dates()]
         dates = [d for _i, d in date_cols]
         participants = []
         for p in self._t3_filled_parts():

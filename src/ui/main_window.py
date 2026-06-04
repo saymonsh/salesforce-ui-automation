@@ -426,8 +426,13 @@ class MainView:
             self.manual_badge.content.color = Color.WARNING
 
     def _on_grid_change(self) -> None:
-        # Called from the grid on every edit. Only the chip (behind the dialog)
-        # needs syncing; guard the update so it's a no-op when not mounted.
+        # Called from the grid on every edit. While the grid dialog is open the
+        # chip is hidden behind it, so DON'T run a full page.update() here: doing
+        # it on each keystroke rebuilds the focused TextField and drops the
+        # cursor (the user has to click back in after every character). The chip
+        # is refreshed when the dialog closes (_close_grid_dialog/_on_dismissed).
+        if self._grid_dialog is not None:
+            return
         if self._mode_value == "manual":
             self._refresh_manual_zone()
             self._safe_update()
@@ -896,6 +901,15 @@ class MainView:
             ft.Icons.CLOSE_ROUNDED, icon_color=Color.TEXT_SECONDARY, icon_size=20,
             tooltip="סגור", on_click=lambda _: self._close_grid_dialog(),
         )
+        # Primary action. The model is already committed on every keystroke, so
+        # this is really "done" — it commits the table and closes, refreshing the
+        # chip + run-enable on the way out (_close_grid_dialog).
+        save_btn = ft.FilledButton(
+            "שמור וסגור", icon=ft.Icons.CHECK_ROUNDED,
+            tooltip="שמור את הטבלה וחזור למסך הראשי",
+            on_click=lambda _: self._close_grid_dialog(),
+            style=ft.ButtonStyle(bgcolor=Color.BRAND, color=Color.TEXT_ON_BRAND),
+        )
         self._grid_dialog = ft.AlertDialog(
             modal=True, rtl=True,
             # Same translucent glass as the settings dialog. The main panel is
@@ -916,6 +930,10 @@ class MainView:
                         content=ft.Row([close_btn], alignment=ft.MainAxisAlignment.END),
                     ),
                     ft.Container(expand=True, content=self.data_grid.build_surface()),
+                    ft.Container(
+                        padding=ft.padding.only(left=Space.LG, right=Space.LG, bottom=Space.MD, top=Space.XS),
+                        content=ft.Row([save_btn], alignment=ft.MainAxisAlignment.END),
+                    ),
                 ]),
             ),
         )
