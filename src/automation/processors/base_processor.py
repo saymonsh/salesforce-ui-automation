@@ -1,5 +1,4 @@
 import threading
-import pandas as pd
 import pyotp
 from abc import ABC, abstractmethod
 from selenium.common.exceptions import TimeoutException
@@ -151,20 +150,24 @@ class BaseProcessor(ABC):
         return None
 
     # =========================================================================
-    # Shared Excel Reading
+    # Shared Input Loading
     # =========================================================================
 
-    def _read_excel(self, uploaded_file_path):
+    def _load_rows(self, source):
         """
-        Reads an Excel file and validates it is not empty.
-        Returns the DataFrame, or None if the file is empty.
-        """
-        excel_data = pd.read_excel(uploaded_file_path)
+        Load tabular rows from a :class:`TabularSource` (issue #15) and apply the
+        shared empty-input guard. Returns the ordered list of row dicts, or None
+        if there are no rows (in which case the empty status is already emitted).
 
-        if len(excel_data) == 0:
-            logger.error("Excel file is empty — no rows to process", stage="run")
+        The source decouples the processor from the input medium: today it is an
+        Excel file, but the same guard serves a manual-entry grid unchanged.
+        """
+        rows = source.rows()
+
+        if not rows:
+            logger.error("input is empty — no rows to process", stage="run")
             self.update_ui(status=Status.FILE_EMPTY, level="error")
             return None
 
-        logger.info(f"{len(excel_data)} rows loaded from Excel", stage="run")
-        return excel_data
+        logger.info(f"{len(rows)} rows loaded", stage="run")
+        return rows

@@ -4,7 +4,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from src.core.utils import smart_sleep, verify_running
 from src.automation.processors.base_processor import BaseProcessor
-from src.automation.excel_parser import ExcelParser
+from src.automation.data_source import ExcelMatrixSource
 from src.automation.api_client import SalesforceApiClient
 from src.core.config import config_instance as parm
 from src.core.exceptions import StopRequestedException
@@ -42,8 +42,8 @@ class AttendanceProcessor(BaseProcessor):
             parent_record_id = match.group(1)
             logger.info(f"parent service schedule {parent_record_id}", stage="attendance")
 
-            # 2. Parse Excel
-            excel_data = ExcelParser.parse_attendance_matrix(uploaded_file_path)
+            # 2. Parse the attendance matrix (issue #15: via the data-source seam)
+            excel_data = ExcelMatrixSource(uploaded_file_path).matrix()
             logger.info(
                 f"matrix parsed: {len(excel_data['participants'])} participants, "
                 f"{len(excel_data['dates'])} dates",

@@ -1,5 +1,6 @@
 from src.automation.processors.base_processor import BaseProcessor
 from src.automation import actions
+from src.automation.data_source import ExcelTabularSource
 from src.core.config import config_instance as parm
 from src.core.exceptions import StopRequestedException
 from src.core.logger import logger
@@ -11,8 +12,8 @@ class LoginProcessor(BaseProcessor):
         super().__init__(signals, driver_manager)
 
     def process(self, uploaded_file_path):
-        excel_data = self._read_excel(uploaded_file_path)
-        if excel_data is None:
+        rows = self._load_rows(ExcelTabularSource(uploaded_file_path))
+        if rows is None:
             return
 
         self.check_for_stop()
@@ -21,11 +22,11 @@ class LoginProcessor(BaseProcessor):
         self._setup_driver()
         self._login("https://welfareministry.lightning.force.com/lightning/page/home")
 
-        total = len(excel_data)
+        total = len(rows)
         if self.signals:
             self.signals.started.emit(total)
 
-        for index, row in excel_data.iterrows():
+        for index, row in enumerate(rows):
             self.check_for_stop()
 
             id_number = row['תעודות זהות']

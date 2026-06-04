@@ -3,6 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from src.automation.processors.base_processor import BaseProcessor
 from src.automation import selectors as S
+from src.automation.data_source import ExcelTabularSource
 from src.core.config import config_instance as parm
 from src.core.exceptions import StopRequestedException
 from src.core.logger import logger
@@ -12,8 +13,8 @@ from src.core.utils import interruptible_find_element
 
 class CandidateProcessor(BaseProcessor):
     def process(self, uploaded_file_path):
-        excel_data = self._read_excel(uploaded_file_path)
-        if excel_data is None:
+        rows = self._load_rows(ExcelTabularSource(uploaded_file_path))
+        if rows is None:
             return
 
         self.check_for_stop()
@@ -27,11 +28,11 @@ class CandidateProcessor(BaseProcessor):
         init_btn = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_INITIAL_BUTTON, check_stop_func=lambda: self.is_stopped)
         init_btn.click()
 
-        total = len(excel_data)
+        total = len(rows)
         if self.signals:
             self.signals.started.emit(total)
 
-        for index, row in excel_data.iterrows():
+        for index, row in enumerate(rows):
             self.check_for_stop()
 
             id_number = row['תעודות זהות']
