@@ -54,6 +54,32 @@ class Color:
     SURFACE_INVERSE = "#1e1e1e"  # logs / terminal background
 
 
+class Term:
+    """macOS-style terminal surface (the activity / debug feed).
+
+    A self-contained dark palette: the feed is the one place in the app that
+    is intentionally dark, so it does not reuse the light neutral scale above.
+    Line colors are keyed by debug-channel severity in main_window.
+    """
+    BG = "#1d1f23"             # deep charcoal terminal body
+    TITLEBAR = "#2b2d31"       # slightly lighter title bar
+    BORDER = "#000000"         # crisp 1px outline (used at low opacity)
+    TITLE = "#c9ccd1"          # title-bar caption + toolbar icons
+    HAIRLINE = "#ffffff"       # divider under the title bar (used at low opacity)
+
+    # Title-bar traffic lights (red / yellow / green).
+    DOT_RED = "#ff5f56"
+    DOT_YELLOW = "#ffbd2e"
+    DOT_GREEN = "#27c93f"
+
+    # Log line text by severity.
+    TEXT = "#e6e6e6"           # default / stdout
+    DEBUG = "#9aa3af"
+    SUCCESS = "#7ee2a8"
+    WARNING = "#ffd27d"
+    ERROR = "#ff8a80"
+
+
 class Space:
     """4px base spacing scale."""
     XS = 4

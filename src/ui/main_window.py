@@ -8,22 +8,16 @@ import flet as ft
 
 from src.core.config import config_instance as parm
 from src.ui.help_dialog import create_help_dialog
-from src.ui.theme import Color, Font, Radius, Space, Type, apply_theme
+from src.ui.theme import Color, Font, Radius, Space, Term, Type, apply_theme
 
-# Log line colors (on the translucent dark feed), keyed by debug-channel level.
-_LOG_DEFAULT = "#ededed"
-_LOG_ERROR = "#ff8a80"
-_LOG_WARNING = "#ffd27d"
-_LOG_DEBUG = "#a9b4c2"
-_LOG_SUCCESS = "#7ee2a8"
-_HAIRLINE = ft.Colors.with_opacity(0.18, "#ffffff")
-
-# Map a debug-channel severity to its feed line color. "OUT"/"ERR" come from the
-# raw stdout/stderr tee (chromedriver, tracebacks); the rest from the logger.
+# Map a debug-channel severity to its feed line color (the macOS terminal).
+# "OUT"/"ERR" come from the raw stdout/stderr tee (chromedriver, tracebacks);
+# the rest from the logger. Anything unmapped falls back to Term.TEXT.
 _LEVEL_COLORS = {
-    "ERROR": _LOG_ERROR, "ERR": _LOG_ERROR,
-    "WARNING": _LOG_WARNING,
-    "DEBUG": _LOG_DEBUG,
+    "ERROR": Term.ERROR, "ERR": Term.ERROR,
+    "WARNING": Term.WARNING,
+    "DEBUG": Term.DEBUG,
+    "SUCCESS": Term.SUCCESS,
 }
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,7 +25,6 @@ _BG_PATH = os.path.join(_ROOT, "assets", "icons", "bg.png")
 
 _BG_OPACITY = 0.80
 _GLASS_PANEL = ft.Colors.with_opacity(0.55, "#ffffff")
-_GLASS_FEED = ft.Colors.with_opacity(0.60, "#141414")
 _GLASS_CHIP = ft.Colors.with_opacity(0.45, "#ffffff")
 _GLASS_INSET = ft.Colors.with_opacity(0.38, "#ffffff")
 _PANEL_SHADOW = ft.BoxShadow(
@@ -69,6 +62,9 @@ class MainView:
         # drain on the UI loop in batches (decoupled = no loop flooding/freeze).
         # Each item is (text, level) where level is a debug-channel severity.
         self._feed_q: "queue.Queue[tuple[str, str]]" = queue.Queue()
+        # Plain-text mirror of the rendered feed lines — backs copy-all / save /
+        # clear so they don't have to read back ft.Text controls. Capped alongside.
+        self._feed_lines: list[str] = []
 
         self._build_page()
         self._build_controls()
@@ -93,7 +89,9 @@ class MainView:
 
     def _build_controls(self) -> None:
         self.file_picker = ft.FilePicker()
+        self.clipboard = ft.Clipboard()  # system clipboard for "copy all" in the feed
         self.page.services.append(self.file_picker)
+        self.page.services.append(self.clipboard)
         self._on_browse: Optional[Callable[[str], None]] = None
 
         # --- Hero: a circular action button wrapped by a progress ring ----------
@@ -179,7 +177,12 @@ class MainView:
             ft.Icons.TERMINAL_ROUNDED, icon_color=Color.TEXT_SECONDARY, tooltip="זרם פעילות",
             on_click=lambda _: self.show_feed_dialog(),
         )
-        self.logs_list = ft.ListView(expand=True, spacing=Space.XS, auto_scroll=True)
+        self.logs_list = ft.ListView(
+            expand=True, spacing=Space.XS, auto_scroll=True, on_scroll=self._on_feed_scroll,
+        )
+        # Toolbar handles set when the feed surface is built; let copy/save flash them.
+        self.feed_copy_btn: Optional[ft.IconButton] = None
+        self.feed_save_btn: Optional[ft.IconButton] = None
         self.logs_empty_view = ft.Container(
             alignment=ft.Alignment.CENTER, expand=True,
             content=ft.Column(
@@ -326,25 +329,131 @@ class MainView:
             ),
         )
 
-    # ------------------------------------------------------------------ feed panel
-    def _feed_panel(self):
-        """The dark glass feed surface. Wraps the persistent logs_holder so it
-        can be mounted into the pop-out dialog and unmounted on close without
-        losing accumulated history."""
-        return ft.Container(
-            expand=True, bgcolor=_GLASS_FEED, border_radius=Radius.LG, padding=Space.LG,
-            content=ft.Column(
-                spacing=Space.SM, expand=True,
-                controls=[
-                    ft.Row(spacing=Space.SM, controls=[
-                        ft.Icon(ft.Icons.GRAPHIC_EQ_ROUNDED, size=16, color="#dcdcdc"),
-                        ft.Text("זרם פעילות", size=Type.CAPTION[0], weight=ft.FontWeight.W_600, color="#dcdcdc"),
-                    ]),
-                    ft.Divider(color=_HAIRLINE, height=1),
-                    self.logs_holder,
-                ],
+    # ------------------------------------------------------------------ feed surface
+    def _build_feed_surface(self):
+        """A macOS-style terminal window for the activity (debug) feed.
+
+        Dark rounded body, a traffic-light title bar (the red light closes the
+        window), monospace lines, and a toolbar to copy/clear/save the stream.
+        Wraps the persistent logs_holder so history survives dialog open/close.
+        """
+        def light(color: str, on_click=None, tip: str | None = None) -> ft.Container:
+            return ft.Container(
+                width=12, height=12, border_radius=Radius.PILL, bgcolor=color,
+                on_click=on_click, tooltip=tip, ink=on_click is not None,
+            )
+
+        lights = ft.Row(spacing=Space.SM, controls=[
+            light(Term.DOT_RED, on_click=lambda _: self._close_feed_dialog(), tip="סגור"),
+            light(Term.DOT_YELLOW),
+            light(Term.DOT_GREEN),
+        ])
+
+        def tool(icon, tip, handler, color=Term.TITLE) -> ft.IconButton:
+            return ft.IconButton(icon, icon_color=color, icon_size=18, tooltip=tip,
+                                 on_click=lambda _: handler())
+
+        self.feed_copy_btn = tool(ft.Icons.COPY_ALL_ROUNDED, "העתק הכל", self._copy_feed)
+        self.feed_save_btn = tool(ft.Icons.SAVE_ALT_ROUNDED, "שמור ללוג", self._save_feed)
+        toolbar = ft.Row(spacing=0, tight=True, controls=[
+            self.feed_copy_btn,
+            tool(ft.Icons.DELETE_SWEEP_ROUNDED, "נקה", self._clear_feed),
+            self.feed_save_btn,
+            # Explicit close, in addition to the red traffic light.
+            tool(ft.Icons.CLOSE_ROUNDED, "סגור", self._close_feed_dialog),
+        ])
+
+        title = ft.Row(
+            spacing=Space.SM, alignment=ft.MainAxisAlignment.CENTER, controls=[
+                ft.Icon(ft.Icons.TERMINAL_ROUNDED, size=15, color=Term.TITLE),
+                ft.Text("זרם פעילות — Activity", size=Type.CAPTION[0],
+                        weight=ft.FontWeight.W_600, color=Term.TITLE, font_family=Font.MONO),
+            ],
+        )
+        titlebar = ft.Container(
+            bgcolor=Term.TITLEBAR,
+            border=ft.Border.only(bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, Term.HAIRLINE))),
+            padding=ft.padding.symmetric(horizontal=Space.MD, vertical=Space.XS),
+            content=ft.Row(
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[lights, ft.Container(expand=True, content=title), toolbar],
             ),
         )
+        body = ft.Container(
+            expand=True, bgcolor=Term.BG,
+            padding=ft.padding.symmetric(horizontal=Space.LG, vertical=Space.MD),
+            content=self.logs_holder,
+        )
+        return ft.Container(
+            expand=True, border_radius=Radius.LG, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            border=ft.border.all(1, ft.Colors.with_opacity(0.5, Term.BORDER)), shadow=_PANEL_SHADOW,
+            content=ft.Column(spacing=0, expand=True, controls=[titlebar, body]),
+        )
+
+    # --------------------------------------------------------------- feed toolbar
+    def _on_feed_scroll(self, e) -> None:
+        """Pause auto-scroll while the user is reading higher up; resume at bottom."""
+        if e.max_scroll_extent <= 0:
+            return
+        at_bottom = (e.max_scroll_extent - e.pixels) < 48
+        if self.logs_list.auto_scroll != at_bottom:
+            self.logs_list.auto_scroll = at_bottom  # applies on the next appended line
+
+    async def _flash_btn(self, btn, icon, color, tip, rest_icon, rest_tip) -> None:
+        """Briefly swap a toolbar icon to confirm an action (no popup alert)."""
+        if btn is None:
+            return
+        btn.icon, btn.icon_color, btn.tooltip = icon, color, tip
+        self._safe_update()
+        await asyncio.sleep(1.4)
+        # The dialog may have closed/reopened (new button) meanwhile — only restore ours.
+        if btn.icon == icon:
+            btn.icon, btn.icon_color, btn.tooltip = rest_icon, Term.TITLE, rest_tip
+            self._safe_update()
+
+    def _copy_feed(self) -> None:
+        if not self._feed_lines:
+            return
+        self.page.run_task(self._copy_feed_async, "\n".join(self._feed_lines))
+
+    async def _copy_feed_async(self, text: str) -> None:
+        try:
+            await self.clipboard.set(text)
+        except Exception:
+            return
+        await self._flash_btn(self.feed_copy_btn, ft.Icons.CHECK_ROUNDED, Term.SUCCESS,
+                              "הועתק!", ft.Icons.COPY_ALL_ROUNDED, "העתק הכל")
+
+    def _clear_feed(self) -> None:
+        self._feed_lines.clear()
+        self.logs_list.controls.clear()
+        self._logs_has_content = False
+        self.logs_holder.content = self.logs_empty_view
+        self._safe_update()
+
+    def _save_feed(self) -> None:
+        if not self._feed_lines:
+            return
+        self.page.run_task(self._save_feed_async)
+
+    async def _save_feed_async(self) -> None:
+        path = await self.file_picker.save_file(
+            dialog_title="שמירת זרם הפעילות", file_name="activity-log.txt",
+            file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["txt", "log"],
+        )
+        if not path:
+            return
+        # Inline button feedback only — never a popup, so it doesn't break the
+        # "no alerts while the console is open" rule.
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(self._feed_lines) + "\n")
+        except Exception:  # pragma: no cover - disk failure
+            await self._flash_btn(self.feed_save_btn, ft.Icons.ERROR_OUTLINE_ROUNDED, Term.ERROR,
+                                  "השמירה נכשלה", ft.Icons.SAVE_ALT_ROUNDED, "שמור ללוג")
+            return
+        await self._flash_btn(self.feed_save_btn, ft.Icons.CHECK_ROUNDED, Term.SUCCESS,
+                              "נשמר!", ft.Icons.SAVE_ALT_ROUNDED, "שמור ללוג")
 
     def _build_console_panel(self):
         topbar = ft.Row(
@@ -544,11 +653,13 @@ class MainView:
                 self._logs_has_content = True
             for text, level in batch:
                 self.logs_list.controls.append(ft.Text(
-                    text, color=_LEVEL_COLORS.get(level, _LOG_DEFAULT),
+                    text, color=_LEVEL_COLORS.get(level, Term.TEXT),
                     size=Type.CAPTION[0], font_family=Font.MONO,
                     text_align=ft.TextAlign.LEFT, selectable=True))
-            if len(self.logs_list.controls) > 600:  # cap history
+                self._feed_lines.append(text)  # plain-text mirror for copy/save
+            if len(self.logs_list.controls) > 600:  # cap history (both views in lockstep)
                 del self.logs_list.controls[:-600]
+                del self._feed_lines[:-600]
             # No status mirroring here: the status field is driven solely by the
             # clean status channel (issue #12). The feed is the debug channel.
             self._safe_update()
@@ -598,33 +709,20 @@ class MainView:
 
     # ------------------------------------------------------------- feed pop-out
     def show_feed_dialog(self) -> None:
-        """Open the activity feed as a standalone glass window."""
+        """Open the activity feed as a standalone macOS-style terminal window."""
         if self._feed_dialog is not None:
             return  # already open
-        close_btn = ft.IconButton(
-            ft.Icons.CLOSE_ROUNDED, icon_color="#dcdcdc", icon_size=20,
-            tooltip="סגור", on_click=lambda _: self._close_feed_dialog(),
-        )
         self._feed_dialog = ft.AlertDialog(
             modal=False,
             rtl=True,
-            bgcolor=ft.Colors.TRANSPARENT,  # the feed panel brings its own dark glass
+            bgcolor=ft.Colors.TRANSPARENT,  # the terminal surface brings its own dark chrome
             barrier_color=ft.Colors.with_opacity(0.28, "#000000"),
             shape=ft.RoundedRectangleBorder(radius=Radius.LG),
             content_padding=0,
             on_dismiss=lambda _: self._on_feed_dismissed(),
             content=ft.Container(
-                width=720, height=520, rtl=True,
-                content=ft.Column(
-                    spacing=0,
-                    controls=[
-                        ft.Container(
-                            padding=ft.padding.only(top=Space.XS, left=Space.XS, right=Space.XS),
-                            content=ft.Row([close_btn], alignment=ft.MainAxisAlignment.END),
-                        ),
-                        ft.Container(expand=True, content=self._feed_panel()),
-                    ],
-                ),
+                width=1040, height=580, rtl=True,
+                content=self._build_feed_surface(),
             ),
         )
         self.page.show_dialog(self._feed_dialog)
@@ -693,6 +791,10 @@ class MainView:
         self._safe_update()
 
     def show_alert(self, title: str, message: str, level: str = "info") -> None:
+        # While the console terminal is open it owns the screen — errors already
+        # stream into it as ERR lines, so don't stack popup alerts on top of it.
+        if self._feed_dialog is not None:
+            return
         icon = {
             "warning": ft.Icons.WARNING_AMBER_ROUNDED, "error": ft.Icons.ERROR_OUTLINE_ROUNDED,
             "critical": ft.Icons.ERROR_OUTLINE_ROUNDED, "info": ft.Icons.INFO_OUTLINE_ROUNDED,
