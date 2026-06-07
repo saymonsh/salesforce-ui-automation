@@ -80,11 +80,12 @@ def _parse_date(value: str) -> datetime | None:
 
 
 def normalize_display_date(value: str) -> str | None:
-    """Return ``value`` as Israeli ``dd.mm.yyyy`` for display, or ``None``. This
-    is the canonical form the TYPE 3 grid *shows and stores* — the user thinks in
-    day-first dates."""
+    """Return ``value`` as Israeli ``d.m.yyyy`` for display, or ``None``. This is
+    the canonical form the TYPE 3 grid *shows and stores* — the user thinks in
+    day-first dates with no leading zeros. Built manually (not ``strftime``)
+    because the no-pad directive ``%-d`` is not portable to Windows."""
     dt = _parse_date(value)
-    return dt.strftime("%d.%m.%Y") if dt else None
+    return f"{dt.day}.{dt.month}.{dt.year}" if dt else None
 
 
 def normalize_iso_date(value: str) -> str | None:
@@ -286,7 +287,7 @@ def parse_matrix(text: str) -> MatrixPaste:
         res.warnings.append("שעות המפגש לא זוהו — הזן אותן ידנית")
 
     # Date columns: every non-empty cell from the 2nd column on, shown to the
-    # user as Israeli dd.mm.yyyy (a pasted ISO date is converted for display;
+    # user as Israeli d.m.yyyy (a pasted ISO date is converted for display;
     # the ISO form is restored only when the matrix is handed to the processor).
     date_cols: list[tuple[int, str]] = []
     bad_dates: list[str] = []

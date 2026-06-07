@@ -74,7 +74,7 @@ class Status:
     # --- TYPE 3 — נוכחות (unit is a date/session, not a row) ----------------
     @staticmethod
     def t3_processing(date_str: str, n: int, total: int) -> str:
-        # date_str must already be Israeli dd.mm.yyyy — every date in the UI is
+        # date_str must already be Israeli d.m.yyyy — every date in the UI is
         # day-first, never ISO. The caller converts before passing it in.
         return f"מעבד תאריך {_iso(date_str)} ({_iso(n)} מתוך {_iso(total)})"
 

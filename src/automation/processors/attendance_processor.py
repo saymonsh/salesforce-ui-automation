@@ -138,8 +138,9 @@ class AttendanceProcessor(BaseProcessor):
                 logger.set_context(stage="aura", date=date_str)
                 # date_str is ISO (yyyy-mm-dd) for the attendance lookup + UTC math
                 # below, but the operator-facing UI only ever shows Israeli
-                # dd.mm.yyyy (matches normalize_display_date / the grid).
-                date_display = datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y")
+                # d.m.yyyy, no leading zeros (matches normalize_display_date / the grid).
+                _d = datetime.strptime(date_str, "%Y-%m-%d")
+                date_display = f"{_d.day}.{_d.month}.{_d.year}"
                 # Only the high-level "processing date X of Y" reaches the status
                 # field; the per-date sub-steps below go to the debug channel.
                 self.update_ui(status=Status.t3_processing(date_display, idx + 1, total_dates))

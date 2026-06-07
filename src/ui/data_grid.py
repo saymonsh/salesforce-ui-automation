@@ -367,10 +367,10 @@ class DataGridView:
         self._emit_change()
 
     def _date_header_field(self, value: str, idx: int, width: int) -> ft.TextField:
-        # Shown to the user in Israeli dd.mm.yyyy; converted to ISO only when the
+        # Shown to the user in Israeli d.m.yyyy; converted to ISO only when the
         # matrix is built (see _build_matrix). Typed ISO is still accepted.
         field = ft.TextField(
-            value=value, width=width, hint_text="dd.mm.yyyy", text_size=Type.CAPTION[0],
+            value=value, width=width, hint_text="d.m.yyyy", text_size=Type.CAPTION[0],
             dense=True, content_padding=Space.XS, border_radius=Radius.SM,
             border_color=_CELL_BORDER, focused_border_color=Color.BRAND, cursor_color=Color.BRAND,
             bgcolor=ft.Colors.with_opacity(0.5, "#ffffff"), color=Color.TEXT_PRIMARY,
@@ -663,7 +663,7 @@ class DataGridView:
             if s and normalize_iso_date(s) is None:
                 reasons.append(
                     f"תאריך בעמודה {ltr_isolate(i)} חייב להיות תאריך תקין "
-                    f"({ltr_isolate('dd.mm.yyyy')})"
+                    f"({ltr_isolate('d.m.yyyy')})"
                 )
         if not self._t3_filled_dates():
             reasons.append("נדרש לפחות תאריך אחד")
@@ -828,7 +828,7 @@ class DataGridView:
         return msg
 
     def _build_matrix(self) -> dict:
-        # The grid holds Israeli dd.mm.yyyy dates; the processor wants ISO
+        # The grid holds Israeli d.m.yyyy dates; the processor wants ISO
         # (strptime "%Y-%m-%d %H:%M"), so convert here at the source boundary.
         date_cols = [(col_index, normalize_iso_date(raw) or raw)
                      for col_index, raw in self._t3_filled_dates()]
