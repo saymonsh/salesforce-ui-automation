@@ -37,6 +37,7 @@ _PANEL_SHADOW = ft.BoxShadow(
 _PANEL_WIDTH = 440
 _RING_TRACK = ft.Colors.with_opacity(0.14, "#2b2b2b")
 _LINEAR_TRACK = ft.Colors.with_opacity(0.16, "#2b2b2b")
+_NEUTRAL_RING = "#c4c4c4"  # calm full ring for the 'action required' state (no color clash)
 
 
 # Process types: key -> (label, icon). Drives the inline type selector and is
@@ -58,6 +59,10 @@ class MainView:
         self._grid_dialog = None
         self._logs_has_content = False
         self._running = False
+        # True between a warning ('action required') finish and the next run —
+        # lets set_running(False) keep the amber action button instead of resetting
+        # it to brand-red (it runs right after the warning status emit).
+        self._action_required = False
         self._on_run: Optional[Callable] = None
         self._on_stop: Optional[Callable] = None
         # Terminal output arrives from worker/chromedriver threads; queue it and
@@ -117,6 +122,9 @@ class MainView:
         # ft.Icon.name alone does NOT re-render in Flet 0.84 (icon name caching),
         # so we swap the whole content instead (always re-renders).
         self.play_icon = ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=50, color=Color.TEXT_ON_BRAND)
+        # Dark variant for the amber 'action required' button (white-on-amber has
+        # poor contrast — the glyph must be dark on the amber fill).
+        self.play_icon_dark = ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=50, color=Color.TEXT_PRIMARY)
         self.stop_icon = ft.Icon(ft.Icons.STOP_ROUNDED, size=46, color=Color.TEXT_ON_BRAND)
         self.action_circle = ft.Container(
             width=116, height=116, border_radius=Radius.PILL, bgcolor=Color.BRAND,
@@ -128,6 +136,16 @@ class MainView:
             ),
         )
         self.hero_value = ft.Text("מוכן", size=26, weight=ft.FontWeight.W_800, color=Color.TEXT_PRIMARY)
+        # Non-chromatic 'action required' signal (color-blind safe), shown beside
+        # the hero title only in the warning end state — industry guidance is to
+        # pair a status color with a shape/icon, never rely on color alone.
+        self.hero_icon = ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, size=24, color=Color.ACTION_REQUIRED, visible=False)
+        self._hero_row = ft.Row(
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=Space.SM, tight=True,
+            controls=[self.hero_icon, self.hero_value],
+        )
         self.status_text = ft.Text(
             "מוכן להרצה", size=Type.BODY[0], color=Color.TEXT_SECONDARY,
             weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER,
@@ -289,6 +307,15 @@ class MainView:
         self.status_text.value = f"מצב: {label}"
         self.status_text.color = Color.TEXT_SECONDARY
         self.hero_value.value, self.hero_value.color = "מוכן", Color.TEXT_PRIMARY
+        self.hero_icon.visible = False
+        # Clear any stranded 'action required' styling when switching process type.
+        if self._action_required:
+            self._action_required = False
+            self.action_circle.bgcolor = Color.BRAND
+            self.action_circle.shadow.color = ft.Colors.with_opacity(0.35, Color.BRAND)
+            self.action_circle.content = self.play_icon
+            self.progress_ring.color = self.linear.color = Color.BRAND
+            self.progress_ring.value = self.linear.value = 0
         self._safe_update()
 
     def _refresh_type(self) -> None:
@@ -384,7 +411,7 @@ class MainView:
                         spacing=Space.MD,
                         controls=[
                             ring,
-                            self.hero_value,
+                            self._hero_row,
                             status_field,
                             self.counter_text,
                         ],
@@ -621,6 +648,12 @@ class MainView:
         if not text:
             return
         self.status_text.value = text
+        # The 'action required' glyph belongs to the warning state only; clear it
+        # by default so any other status update drops it. The warning branch below
+        # turns it back on. (set_running(False) deliberately leaves it untouched so
+        # it survives the finish that follows a warning emit.)
+        self.hero_icon.visible = False
+        self._action_required = False  # warning branch re-arms it
         is_error = level == "error" or "error" in text.lower() or "שגיאה" in text
         if is_error:
             self.status_text.color = self.hero_value.color = Color.DANGER
@@ -637,13 +670,21 @@ class MainView:
             self.action_circle.content = self.play_icon  # run finished → idle triangle
             self.hero_value.value = "הושלם"
         elif level == "warning":
-            # Work completed but a manual action is still required (TYPE 2 end
-            # state). Amber, full ring, but distinct from a clean success.
-            self.status_text.color = self.hero_value.color = Color.WARNING
-            self.progress_ring.color = self.linear.color = Color.WARNING
+            # 'Action required' (TYPE 2 end state). The amber lives on the action
+            # button itself (with a dark glyph for contrast); the ring goes calm
+            # neutral grey and the text clean near-black, so nothing clashes. A
+            # small amber warning glyph sits beside the title, and the progress bar
+            # echoes the amber. The button color is (re)applied by set_running's
+            # idle branch via _action_required, since that runs after this on finish.
+            self._action_required = True
+            self.status_text.color = self.hero_value.color = Color.TEXT_PRIMARY
+            self.progress_ring.color = _NEUTRAL_RING
+            self.linear.color = Color.ACTION_REQUIRED
             self.progress_ring.value = self.linear.value = 1
-            self.status_dot.bgcolor = Color.WARNING
-            self.action_circle.content = self.play_icon
+            self.action_circle.bgcolor = Color.ACTION_REQUIRED
+            self.action_circle.shadow.color = ft.Colors.with_opacity(0.35, Color.ACTION_REQUIRED)
+            self.action_circle.content = self.play_icon_dark
+            self.hero_icon.visible = True
             self.hero_value.value = "נדרשת פעולה"
         else:
             self.status_text.color = Color.TEXT_SECONDARY
@@ -697,6 +738,7 @@ class MainView:
         if self._running:
             self.hero_value.value = f"{int(clamped * 100)}%"
             self.hero_value.color = Color.TEXT_PRIMARY
+            self.hero_icon.visible = False  # only the warning end state shows it
         self._safe_update()
 
     def set_running(self, is_running: bool) -> None:
@@ -705,6 +747,8 @@ class MainView:
         # Draw the eye to the feed button while output is streaming.
         self.feed_button.icon_color = Color.BRAND if is_running else Color.TEXT_SECONDARY
         if is_running:
+            self.hero_icon.visible = False  # clear any prior 'action required' glyph
+            self._action_required = False
             self.action_circle.bgcolor = Color.DANGER
             self.action_circle.shadow.color = ft.Colors.with_opacity(0.35, Color.DANGER)
             self.action_circle.content = self.stop_icon  # square while running
@@ -717,6 +761,17 @@ class MainView:
             # Dim the type selector — switching process mid-run is blocked.
             for seg in self._type_segments.values():
                 seg.opacity = 0.55 if seg.data != self._type_value else 1.0
+        elif self._action_required:
+            # Finished in an 'action required' state — keep the amber button with
+            # its dark glyph (set by the warning branch) instead of resetting to
+            # brand-red. This runs right after the warning status emit on finish.
+            self.action_circle.bgcolor = Color.ACTION_REQUIRED
+            self.action_circle.shadow.color = ft.Colors.with_opacity(0.35, Color.ACTION_REQUIRED)
+            self.action_circle.content = self.play_icon_dark
+            self.action_circle.tooltip = "הפעל תהליך"
+            self.status_dot.bgcolor = Color.TEXT_TERTIARY
+            for seg in self._type_segments.values():
+                seg.opacity = 1.0
         else:
             self.action_circle.bgcolor = Color.BRAND
             self.action_circle.shadow.color = ft.Colors.with_opacity(0.35, Color.BRAND)
@@ -725,7 +780,22 @@ class MainView:
             self.status_dot.bgcolor = Color.TEXT_TERTIARY
             for seg in self._type_segments.values():
                 seg.opacity = 1.0
+        # Lock the data-entry table and settings while a run is in flight — editing
+        # the input mid-run would desync what's being processed from what's shown.
+        # Both are reachable only via these two buttons (the dialogs themselves are
+        # guarded too), so disabling them seals every edit path. State is restored
+        # symmetrically when the run finishes/stops (set_running(False)).
+        self._set_edit_locked(is_running)
         self._safe_update()
+
+    def _set_edit_locked(self, locked: bool) -> None:
+        """Enable/disable the entry-grid and settings entry points as one unit."""
+        self.open_grid_button.disabled = locked
+        self.open_grid_button.opacity = 0.5 if locked else 1.0
+        self.open_grid_button.tooltip = "לא ניתן לערוך את הטבלה בזמן ריצה" if locked else None
+        self.settings_button.disabled = locked
+        self.settings_button.opacity = 0.5 if locked else 1.0
+        self.settings_button.tooltip = "לא ניתן לשנות הגדרות בזמן ריצה" if locked else "הגדרות"
 
     def disable_stop(self) -> None:
         self.action_circle.disabled = True
@@ -766,6 +836,8 @@ class MainView:
     # ------------------------------------------------------------- manual grid
     def show_grid_dialog(self) -> None:
         """Open the manual-entry table as a modal editor (issue #16)."""
+        if self._running:
+            return  # input is locked while a run is in flight
         if self._grid_dialog is not None:
             return
         close_btn = ft.IconButton(
@@ -904,6 +976,8 @@ class MainView:
 
     # ------------------------------------------------------------- settings modal
     def show_settings_view(self, settings_container) -> None:
+        if self._running:
+            return  # settings are locked while a run is in flight
         self.settings_container = settings_container
         close_btn = ft.IconButton(
             ft.Icons.CLOSE_ROUNDED, icon_color=Color.TEXT_SECONDARY, icon_size=20,
@@ -970,7 +1044,13 @@ class MainView:
             # wraps and aligns as LTR. Matches the settings/feed dialogs.
             rtl=True,
             title=ft.Row(spacing=Space.SM, controls=[ft.Icon(icon, color=icon_color), ft.Text(title, color=Color.TEXT_PRIMARY)]),
-            content=ft.Text(message, selectable=True, color=Color.TEXT_PRIMARY, text_align=ft.TextAlign.RIGHT),
+            # Fixed-width content so the dialog keeps a constant size regardless of
+            # message length — short messages no longer collapse to a narrow box and
+            # long ones wrap inside the same width instead of stretching the dialog.
+            content=ft.Container(
+                width=420,
+                content=ft.Text(message, selectable=True, color=Color.TEXT_PRIMARY, text_align=ft.TextAlign.RIGHT),
+            ),
             actions=[ft.TextButton("סגור", on_click=lambda _: self._close_dialog(dialog))],
             actions_alignment=ft.MainAxisAlignment.END,
         )

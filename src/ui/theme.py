@@ -37,6 +37,7 @@ class Color:
     # Semantic
     SUCCESS = "#137a4e"        # completed runs (AA on white)
     WARNING = "#8a5a00"        # validation / caution (AA as normal text, 5.9:1)
+    ACTION_REQUIRED = "#e08600"  # 'action required' accent — warm amber, used only on the small warning glyph
     DANGER = "#c0392b"         # destructive / stop / errors (AA white-on)
     DANGER_HOVER = "#a5301f"
     INFO = "#2563eb"
