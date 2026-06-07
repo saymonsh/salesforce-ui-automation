@@ -210,7 +210,9 @@ class MainView:
         self.logs_holder = ft.Container(expand=True, content=self.logs_empty_view)
 
         # --- Manual-entry grid (issue #16) --------------------------------------
-        self.data_grid = DataGridView(self.page, on_change=self._on_grid_change)
+        self.data_grid = DataGridView(
+            self.page, on_change=self._on_grid_change, on_import=self._import_grid_clicked,
+            on_save=self._close_grid_dialog)
         self._restore_draft()  # repopulate the grid from the last session (issue #18)
         if self._type_value:
             self.data_grid.rebuild_for_type(self._type_value)
@@ -749,8 +751,12 @@ class MainView:
         if is_running:
             self.hero_icon.visible = False  # clear any prior 'action required' glyph
             self._action_required = False
-            self.action_circle.bgcolor = Color.DANGER
-            self.action_circle.shadow.color = ft.Colors.with_opacity(0.35, Color.DANGER)
+            # One red for every button state: the running/stop affordance stays in
+            # BRAND and the state change is carried by the icon (▶→⏹) + the spinning
+            # progress ring. DANGER is reserved for genuine errors/destructive
+            # actions so red keeps its meaning (see the theme decision).
+            self.action_circle.bgcolor = Color.BRAND
+            self.action_circle.shadow.color = ft.Colors.with_opacity(0.35, Color.BRAND)
             self.action_circle.content = self.stop_icon  # square while running
             self.action_circle.tooltip = "עצור תהליך"
             self.progress_ring.color = self.linear.color = Color.BRAND
@@ -844,23 +850,10 @@ class MainView:
             ft.Icons.CLOSE_ROUNDED, icon_color=Color.TEXT_SECONDARY, icon_size=20,
             tooltip="סגור", on_click=lambda _: self._close_grid_dialog(),
         )
-        # Primary action. The model is already committed on every keystroke, so
-        # this is really "done" — it commits the table and closes, refreshing the
-        # chip + run-enable on the way out (_close_grid_dialog).
-        save_btn = ft.FilledButton(
-            "שמור וסגור", icon=ft.Icons.CHECK_ROUNDED,
-            tooltip="שמור את הטבלה וחזור למסך הראשי",
-            on_click=lambda _: self._close_grid_dialog(),
-            style=ft.ButtonStyle(bgcolor=Color.BRAND, color=Color.TEXT_ON_BRAND),
-        )
-        # Excel is now an import path *into* the grid (epic #14 / #18), replacing
-        # the table with the file's rows — there is no separate file-run mode.
-        import_btn = ft.TextButton(
-            "ייבא מ-Excel", icon=ft.Icons.UPLOAD_FILE_ROUNDED,
-            tooltip="טען קובץ Excel קיים אל תוך הטבלה (מחליף את התוכן הנוכחי)",
-            style=ft.ButtonStyle(color=Color.BRAND),
-            on_click=lambda _: self._import_grid_clicked(),
-        )
+        # "ייבא מ-Excel" and "שמור וסגור" now live in the grid's own toolbar
+        # (next to add/paste/clear), so every action sits on one row — see
+        # DataGridView. The host still owns their handlers via the on_import /
+        # on_save callbacks passed when the grid was constructed.
         self._grid_dialog = ft.AlertDialog(
             modal=True, rtl=True,
             # Same translucent glass as the settings dialog. The main panel is
@@ -881,13 +874,6 @@ class MainView:
                         content=ft.Row([close_btn], alignment=ft.MainAxisAlignment.END),
                     ),
                     ft.Container(expand=True, content=self.data_grid.build_surface()),
-                    ft.Container(
-                        padding=ft.padding.only(left=Space.LG, right=Space.LG, bottom=Space.MD, top=Space.XS),
-                        content=ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            controls=[import_btn, save_btn],
-                        ),
-                    ),
                 ]),
             ),
         )

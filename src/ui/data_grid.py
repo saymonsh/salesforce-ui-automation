@@ -59,9 +59,13 @@ class DataGridView:
     switching back and forth never loses typed data.
     """
 
-    def __init__(self, page: ft.Page, on_change: Optional[Callable[[], None]] = None):
+    def __init__(self, page: ft.Page, on_change: Optional[Callable[[], None]] = None,
+                 on_import: Optional[Callable[[], None]] = None,
+                 on_save: Optional[Callable[[], None]] = None):
         self.page = page
         self._on_change = on_change
+        self._on_import = on_import  # host hook for the "ייבא מ-Excel" toolbar button
+        self._on_save = on_save      # host hook for the "שמור וסגור" toolbar button
         self._type = "1"
 
         # Independent per-TYPE models, each seeded with one empty row.
@@ -204,7 +208,7 @@ class DataGridView:
         return ft.Column(spacing=Space.SM, expand=True, controls=[
             header,
             ft.Container(expand=True, content=rows_list),
-            ft.Row(spacing=Space.SM, controls=[add_btn, self._paste_button()]),
+            self._toolbar(add_btn, self._paste_button(), self._import_button(), self._clear_button()),
         ])
 
     def _tabular_cell(self, row: dict, key: str, width: int) -> ft.TextField:
@@ -316,7 +320,7 @@ class DataGridView:
         scroller = ft.Row(scroll=ft.ScrollMode.AUTO, controls=[matrix])
         scroll_area = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, controls=[scroller])
 
-        toolbar = ft.Row(spacing=Space.SM, controls=[
+        toolbar = self._toolbar(
             ft.TextButton("הוסף משתתף", icon=ft.Icons.PERSON_ADD_ROUNDED,
                           style=ft.ButtonStyle(color=Color.BRAND),
                           on_click=lambda _e: self._add_part()),
@@ -324,7 +328,9 @@ class DataGridView:
                           style=ft.ButtonStyle(color=Color.BRAND),
                           on_click=lambda _e: self._add_date()),
             self._paste_button(),
-        ])
+            self._import_button(),
+            self._clear_button(),
+        )
         return ft.Column(spacing=Space.SM, expand=True, controls=[
             times,
             ft.Divider(color=ft.Colors.with_opacity(0.4, Color.BORDER), height=1),
@@ -455,6 +461,36 @@ class DataGridView:
             on_click=lambda _e: self._paste_clicked(),
         )
 
+    def _import_button(self) -> ft.Control:
+        # Excel is an import path *into* the grid (replaces the table). The actual
+        # file picking/reading lives on the host (main_window); we just expose the
+        # button here so it sits beside add/paste/clear in one toolbar row.
+        return ft.TextButton(
+            "ייבא מ-Excel", icon=ft.Icons.UPLOAD_FILE_ROUNDED,
+            tooltip="טען קובץ Excel קיים אל תוך הטבלה (מחליף את התוכן הנוכחי)",
+            style=ft.ButtonStyle(color=Color.BRAND),
+            on_click=lambda _e: self._on_import() if self._on_import else None,
+        )
+
+    def _save_button(self) -> ft.Control:
+        # Primary "done" action. The model is committed on every keystroke, so
+        # this just closes the editor (the host persists the draft + refreshes
+        # the main screen). Lives in the toolbar so it shares the buttons' row.
+        return ft.FilledButton(
+            "שמור וסגור", icon=ft.Icons.CHECK_ROUNDED,
+            tooltip="שמור את הטבלה וחזור למסך הראשי",
+            style=ft.ButtonStyle(bgcolor=Color.BRAND, color=Color.TEXT_ON_BRAND),
+            on_click=lambda _e: self._on_save() if self._on_save else None,
+        )
+
+    def _toolbar(self, *actions: ft.Control) -> ft.Control:
+        """One row: the table action buttons grouped together, with שמור וסגור
+        pushed to the opposite end so everything sits on the same line."""
+        return ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+            ft.Row(spacing=Space.SM, controls=list(actions)),
+            self._save_button(),
+        ])
+
     def _paste_clicked(self) -> None:
         try:
             text = pyperclip.paste()
@@ -514,6 +550,39 @@ class DataGridView:
         }.get(level, Color.TEXT_SECONDARY)
         self._note_text.visible = bool(message)
         self._note_text.update()
+
+    # --- clear all (wipe the active TYPE's table) --------------------------
+    def _clear_button(self) -> ft.Control:
+        return ft.TextButton(
+            "נקה הכל", icon=ft.Icons.DELETE_SWEEP_ROUNDED,
+            tooltip="מחק את כל תוכן הטבלה",
+            style=ft.ButtonStyle(color=Color.DANGER),
+            on_click=lambda _e: self._clear_all(),
+        )
+
+    def _clear_all(self) -> None:
+        """Reset the active TYPE's table back to its pristine initial state.
+
+        Wipes every row — including blank ones the user added — leaving the
+        single empty seed the grid starts with. Only the currently-displayed
+        TYPE is reset; each TYPE keeps its own model (like the per-row delete
+        button), so switching TYPEs never loses the others' data. The user
+        stays in the grid editor; no confirmation prompt.
+        """
+        if self._type == "3":
+            self._t3_start = ""
+            self._t3_end = ""
+            self._t3_dates = [""]
+            self._t3_parts = [self._new_t3_part()]
+        elif self._type == "2":
+            self._t2_rows = [self._new_t2_row()]
+        else:
+            self._t1_rows = [self._new_t1_row()]
+        if self._body is not None:
+            self._render_body()
+            self._body.update()
+        self._refresh_summary()
+        self._emit_change()
 
     # ----------------------------------------------------------------- shared bits
     def _delete_button(self, handler) -> ft.Control:
