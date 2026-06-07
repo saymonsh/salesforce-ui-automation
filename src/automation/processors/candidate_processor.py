@@ -66,4 +66,7 @@ class CandidateProcessor(BaseProcessor):
 
         logger.reset_context()
         # End state requires a manual "next" in Salesforce → warning, not success.
+        # Keep Chrome open so the operator can complete that step (the worker
+        # detaches instead of closing the driver when this flag is set).
+        self.keep_browser_open = True
         self.update_ui(status=Status.t2_done(total), level="warning")

@@ -17,6 +17,10 @@ class BaseProcessor(ABC):
         self.signals = signals
         self.driver_manager = driver_manager
         self.stop_event = threading.Event()
+        # When a run finishes leaving a manual step for the operator in the
+        # browser (e.g. TYPE 2's final "next" in Salesforce), the processor sets
+        # this so the worker leaves Chrome open instead of closing it.
+        self.keep_browser_open = False
 
     def stop(self):
         """Signals the processor to stop execution."""

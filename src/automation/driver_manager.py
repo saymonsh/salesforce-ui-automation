@@ -69,6 +69,12 @@ class DriverManager:
         chrome_options.add_argument("--disable-notifications")
         chrome_options.add_argument("--disable-popup-blocking")
         chrome_options.add_argument("--disable-cookies")
+        # Keep Chrome alive if chromedriver exits without an explicit quit. This is
+        # what lets a run end in an 'action required' state with the window left
+        # open for the operator (see detach_driver): we can terminate chromedriver
+        # to free port 9515 for the next run without slamming the browser shut.
+        # Normal completion still calls driver.quit(), which closes Chrome anyway.
+        chrome_options.add_experimental_option("detach", True)
         logger.debug("chrome options set", stage="driver")
 
         chromedriver_url = "http://127.0.0.1:9515"
@@ -96,3 +102,23 @@ class DriverManager:
             finally:
                 self.chromedriver_process = None
         logger.debug("chromedriver terminated", stage="driver")
+
+    def detach_driver(self):
+        """Release our handle on Chrome but leave the window open.
+
+        Used when a run ends in an 'action required' state and the operator still
+        has a manual step to finish in the browser. We deliberately do NOT call
+        ``driver.quit()`` (that closes the window); instead we drop the session
+        reference and terminate the chromedriver subprocess. Thanks to the
+        ``detach`` option set in create_driver, killing chromedriver leaves Chrome
+        standing while freeing port 9515 for the next run.
+        """
+        self.driver = None
+        if self.chromedriver_process:
+            try:
+                self.chromedriver_process.terminate()
+            except Exception:
+                pass
+            finally:
+                self.chromedriver_process = None
+        logger.debug("chromedriver detached — browser left open", stage="driver")

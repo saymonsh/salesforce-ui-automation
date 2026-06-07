@@ -92,7 +92,19 @@ class AutomationWorker:
             logger.error(f"run aborted: {e}", stage="run", exc=True)
 
         finally:
-            self.driver_manager.close_driver()
+            # Leave Chrome open only when the run completed cleanly AND the
+            # processor flagged a pending manual step (e.g. TYPE 2's final "next"
+            # in Salesforce). A user stop ("Execution Stopped") or any error
+            # always closes the browser fully.
+            keep_open = (
+                success
+                and message == "Done"
+                and getattr(self.processor, "keep_browser_open", False)
+            )
+            if keep_open:
+                self.driver_manager.detach_driver()
+            else:
+                self.driver_manager.close_driver()
             logger.unbind()
             logger.reset_context()
             # Guarantee of Completion:
