@@ -213,7 +213,7 @@ class DataGridView:
         ])
 
     def _tabular_cell(self, row: dict, key: str, width: int) -> ft.TextField:
-        hint = {"id": "מספר זהות", "type": "1–6", "date": "dd/mm/yyyy"}[key]
+        hint = {"id": "מספר זהות", "type": "1–6", "date": "d.m.yyyy"}[key]
         field = ft.TextField(
             value=row.get(key, ""), width=width, hint_text=hint,
             text_size=Type.BODY[0], dense=True, content_padding=Space.SM,

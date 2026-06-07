@@ -54,18 +54,21 @@ def _str_type(value) -> str:
 
 
 def _str_date(value) -> str:
-    """Render a date cell as Israeli ``dd/mm/yyyy`` — the form the tabular grid
-    shows and the Salesforce date field accepts (matching the manual-entry path).
+    """Render a date cell as Israeli ``d.m.yyyy`` (no leading zeros) — the form the
+    tabular grid shows and the Salesforce date field accepts (matching the
+    manual-entry path). Built manually, not via ``strftime``, since the no-pad
+    directive ``%-d`` isn't portable to Windows.
     """
     if pd.isna(value):
         return ""
     if hasattr(value, "strftime"):  # Timestamp / datetime
-        return value.strftime("%d/%m/%Y")
+        return f"{value.day}.{value.month}.{value.year}"
     s = str(value).strip()
     if not s:
         return ""
     try:
-        return pd.to_datetime(s, dayfirst=True).strftime("%d/%m/%Y")
+        d = pd.to_datetime(s, dayfirst=True)
+        return f"{d.day}.{d.month}.{d.year}"
     except Exception:
         return s  # leave it for the grid to flag as invalid rather than guess
 
