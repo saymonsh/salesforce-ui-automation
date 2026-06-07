@@ -25,6 +25,8 @@ class WorkerSignals:
     finished
         bool: success status
         str: message/result
+        str: actionable failure hint (errors only)
+        dict | None: structured run summary for the end-of-run card (TYPE 3)
     item_processed
         (no args)
     status
@@ -65,6 +67,7 @@ class AutomationWorker:
         success = False
         message = "Unknown error"
         detail = ""  # actionable hint shown in the failure dialog (errors only)
+        summary = None  # structured run result for the end-of-run summary card
         # Route the central logger's debug output into the activity feed for the
         # duration of this run, and honour the configured verbosity.
         logger.set_verbose(getattr(parm, "DEBUG_LOGGING", False))
@@ -72,7 +75,7 @@ class AutomationWorker:
         try:
             self.processor = self.processor_class(signals=self.signals, driver_manager=self.driver_manager)
 
-            self.processor.process(*self.args, **self.kwargs)
+            summary = self.processor.process(*self.args, **self.kwargs)
 
             success = True
             message = "Done"
@@ -109,4 +112,4 @@ class AutomationWorker:
             logger.reset_context()
             # Guarantee of Completion:
             # Emit final resolution state to UI
-            self.signals.finished.emit(success, message, detail)
+            self.signals.finished.emit(success, message, detail, summary)

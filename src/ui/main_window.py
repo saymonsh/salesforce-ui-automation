@@ -8,6 +8,7 @@ import flet as ft
 
 from src.core.config import config_instance as parm
 from src.core.status_messages import Status
+from src.core.utils import ltr_isolate
 from src.ui.data_grid import DataGridView
 from src.ui.help_dialog import create_help_dialog
 from src.ui.theme import Color, Font, Radius, Space, Term, Type, apply_theme
@@ -160,6 +161,8 @@ class MainView:
             value=0, color=Color.BRAND, bgcolor=_LINEAR_TRACK,
             bar_height=6, border_radius=Radius.PILL,
         )
+        # Persistent end-of-run summary card (TYPE 3) — hidden until a run finishes.
+        self._summary_holder = self._build_summary_card()
 
         # --- Process-type inline selector ---------------------------------------
         self._type_segments: dict[str, ft.Container] = {}
@@ -492,7 +495,7 @@ class MainView:
         if self.logs_list.auto_scroll != at_bottom:
             self.logs_list.auto_scroll = at_bottom  # applies on the next appended line
 
-    async def _flash_btn(self, btn, icon, color, tip, rest_icon, rest_tip) -> None:
+    async def _flash_btn(self, btn, icon, color, tip, rest_icon, rest_tip, rest_color=Term.TITLE) -> None:
         """Briefly swap a toolbar icon to confirm an action (no popup alert)."""
         if btn is None:
             return
@@ -501,7 +504,7 @@ class MainView:
         await asyncio.sleep(1.4)
         # The dialog may have closed/reopened (new button) meanwhile — only restore ours.
         if btn.icon == icon:
-            btn.icon, btn.icon_color, btn.tooltip = rest_icon, Term.TITLE, rest_tip
+            btn.icon, btn.icon_color, btn.tooltip = rest_icon, rest_color, rest_tip
             self._safe_update()
 
     def _copy_feed(self) -> None:
@@ -572,6 +575,7 @@ class MainView:
                     self._input_zone_holder,
                     self._build_hero(),
                     self.linear,
+                    self._summary_holder,
                 ],
             ),
         )
@@ -644,6 +648,107 @@ class MainView:
         self._on_stop = on_stop
         self.settings_button.on_click = on_settings
         self.help_button.on_click = on_help
+
+    def _build_summary_card(self) -> ft.Container:
+        """Persistent end-of-run summary (TYPE 3). Shows the session count and,
+        when present, the full list of ID numbers that weren't updated — visible
+        and selectable so the operator can copy them, instead of being truncated
+        on the one-line status field."""
+        self._summary_success_text = ft.Text(
+            "", size=Type.BODY[0], color=Color.TEXT_PRIMARY, weight=ft.FontWeight.W_500,
+        )
+        self._summary_warn_title = ft.Text(
+            "", size=Type.CAPTION[0], color=Color.ACTION_REQUIRED, weight=ft.FontWeight.W_700,
+        )
+        # Selectable too, but the copy button is the primary affordance — it copies
+        # the clean IDs (no LTR-isolate chars), one per line for easy re-checking.
+        self._summary_ids_text = ft.Text(
+            "", size=Type.CAPTION[0], color=Color.TEXT_PRIMARY, selectable=True,
+        )
+        self._summary_ids_raw: list[str] = []
+        self._summary_copy_btn = ft.IconButton(
+            icon=ft.Icons.CONTENT_COPY_ROUNDED, icon_size=16, icon_color=Color.TEXT_SECONDARY,
+            tooltip="העתק ת.ז.", on_click=lambda _: self._copy_missing_ids(),
+        )
+        self._summary_warn_block = ft.Container(
+            visible=False,
+            bgcolor=ft.Colors.with_opacity(0.12, Color.ACTION_REQUIRED),
+            border_radius=Radius.MD, padding=Space.SM,
+            content=ft.Column(spacing=Space.XS, controls=[
+                ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+                    ft.Row(spacing=Space.SM, controls=[
+                        ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, size=18, color=Color.ACTION_REQUIRED),
+                        self._summary_warn_title,
+                    ]),
+                    self._summary_copy_btn,
+                ]),
+                ft.Container(
+                    height=120,
+                    content=ft.Column(scroll=ft.ScrollMode.AUTO, controls=[self._summary_ids_text]),
+                ),
+            ]),
+        )
+        header = ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            controls=[
+                ft.Row(spacing=Space.SM, controls=[
+                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=20, color=Color.SUCCESS),
+                    ft.Text("סיכום ריצה", size=Type.TITLE[0], weight=ft.FontWeight.W_700,
+                            color=Color.TEXT_PRIMARY),
+                ]),
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE_ROUNDED, icon_size=18, icon_color=Color.TEXT_SECONDARY,
+                    tooltip="סגור", on_click=lambda _: self.clear_run_summary(),
+                ),
+            ],
+        )
+        return ft.Container(
+            visible=False, width=_PANEL_WIDTH - 2 * Space.XL,
+            bgcolor=Color.SURFACE, border_radius=Radius.LG,
+            border=ft.border.all(1, ft.Colors.with_opacity(0.5, Color.BORDER)),
+            padding=Space.MD,
+            content=ft.Column(spacing=Space.SM, controls=[
+                header, self._summary_success_text, self._summary_warn_block,
+            ]),
+        )
+
+    def show_run_summary(self, summary: dict | None) -> None:
+        """Populate and reveal the run-summary card from a processor result dict."""
+        if not summary:
+            return
+        sessions = summary.get("sessions_created", 0)
+        missing = summary.get("missing_ids") or []
+        self._summary_success_text.value = f"{ltr_isolate(sessions)} מפגשים נוצרו ודווחו בהצלחה"
+        if missing:
+            self._summary_ids_raw = [str(x) for x in missing]
+            self._summary_warn_title.value = f"{ltr_isolate(len(missing))} ת.ז. לא אותרו ולא עודכנו:"
+            self._summary_ids_text.value = ", ".join(ltr_isolate(x) for x in missing)
+            self._summary_warn_block.visible = True
+        else:
+            self._summary_ids_raw = []
+            self._summary_warn_block.visible = False
+        self._summary_holder.visible = True
+        self._safe_update()
+
+    def clear_run_summary(self) -> None:
+        self._summary_holder.visible = False
+        self._safe_update()
+
+    def _copy_missing_ids(self) -> None:
+        """Copy the unmatched IDs (clean, no isolate chars) — one per line."""
+        if not self._summary_ids_raw:
+            return
+        self.page.run_task(self._copy_missing_ids_async)
+
+    async def _copy_missing_ids_async(self) -> None:
+        try:
+            await self.clipboard.set("\n".join(self._summary_ids_raw))
+        except Exception:
+            return
+        await self._flash_btn(
+            self._summary_copy_btn, ft.Icons.CHECK_ROUNDED, Color.SUCCESS, "הועתק!",
+            ft.Icons.CONTENT_COPY_ROUNDED, "העתק ת.ז.", rest_color=Color.TEXT_SECONDARY,
+        )
 
     def set_status(self, text: str, level: str | None = None) -> None:
         """Updates the hero state/caption only. The feed shows real terminal output."""
@@ -736,7 +841,7 @@ class MainView:
         self.progress_ring.value = clamped
         self.linear.value = clamped
         if total:
-            self.counter_text.value = f"{current or 0} מתוך {total} רשומות"
+            self.counter_text.value = f"{ltr_isolate(current or 0)} מתוך {ltr_isolate(total)} רשומות"
         if self._running:
             self.hero_value.value = f"{int(clamped * 100)}%"
             self.hero_value.color = Color.TEXT_PRIMARY
@@ -764,6 +869,7 @@ class MainView:
             self.status_dot.bgcolor = Color.BRAND
             self.hero_value.value, self.hero_value.color = "0%", Color.TEXT_PRIMARY
             self.counter_text.value = ""
+            self._summary_holder.visible = False  # drop the previous run's summary
             # Dim the type selector — switching process mid-run is blocked.
             for seg in self._type_segments.values():
                 seg.opacity = 0.55 if seg.data != self._type_value else 1.0

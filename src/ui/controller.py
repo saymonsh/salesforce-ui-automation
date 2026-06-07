@@ -98,18 +98,18 @@ class Controller:
     async def _safe_update_status(self, status, level=None):
         self.main_view.set_status(status, level=level)
 
-    def on_worker_finished(self, success, message, detail=""):
+    def on_worker_finished(self, success, message, detail="", summary=None):
         if self.page:
-            self.page.run_task(self._safe_worker_finished, success, message, detail)
+            self.page.run_task(self._safe_worker_finished, success, message, detail, summary)
         else:
-            self._apply_finished(success, message, detail)
+            self._apply_finished(success, message, detail, summary)
             self.worker_manager.cleanup()
 
-    async def _safe_worker_finished(self, success, message, detail=""):
-        self._apply_finished(success, message, detail)
+    async def _safe_worker_finished(self, success, message, detail="", summary=None):
+        self._apply_finished(success, message, detail, summary)
         self.worker_manager.cleanup()
 
-    def _apply_finished(self, success, message, detail=""):
+    def _apply_finished(self, success, message, detail="", summary=None):
         """Resolve the run's final UI state.
 
         On clean success the processor has already emitted its type-specific
@@ -133,4 +133,9 @@ class Controller:
             self.main_view.set_status(Status.stopped(self.current_item, self.total_items))
         else:
             self.main_view.set_progress(1.0)
+            # Persistent end-of-run summary (currently TYPE 3): full session count +
+            # the complete, copyable list of IDs that weren't updated — so nothing
+            # is lost to the one-line status field's truncation.
+            if summary:
+                self.main_view.show_run_summary(summary)
 

@@ -7,19 +7,16 @@ separate from the debug channel (``src/core/logger.py``), which is English and
 technical. Because this channel is clean by construction, no noise filter is
 needed on the UI side.
 
-Numbers and IDs are wrapped in an LTR isolate (U+202A … U+202C) so digits render
-left-to-right inside the Hebrew RTL line. Always interpolate via ``_iso`` /
-the helpers below — never f-string a raw number into a Hebrew status string.
+Numbers and IDs are wrapped in an LTR isolate (U+2066 … U+2069) so digits render
+left-to-right inside the Hebrew RTL line *and* don't drag adjacent neutrals
+(parentheses, ":", "-") out of place. Always interpolate via ``_iso`` / the
+helpers below — never f-string a raw number into a Hebrew status string. The
+implementation lives in ``src.core.utils.ltr_isolate`` so the same primitive is
+shared with the UI layer.
 """
 from __future__ import annotations
 
-_LRE = "‪"  # LEFT-TO-RIGHT EMBEDDING
-_PDF = "‬"  # POP DIRECTIONAL FORMATTING
-
-
-def _iso(value) -> str:
-    """Wrap a number/ID in an LTR isolate for correct RTL rendering."""
-    return f"{_LRE}{value}{_PDF}"
+from src.core.utils import ltr_isolate as _iso
 
 
 class Status:
@@ -77,6 +74,8 @@ class Status:
     # --- TYPE 3 — נוכחות (unit is a date/session, not a row) ----------------
     @staticmethod
     def t3_processing(date_str: str, n: int, total: int) -> str:
+        # date_str must already be Israeli dd.mm.yyyy — every date in the UI is
+        # day-first, never ISO. The caller converts before passing it in.
         return f"מעבד תאריך {_iso(date_str)} ({_iso(n)} מתוך {_iso(total)})"
 
     @staticmethod
@@ -85,5 +84,6 @@ class Status:
 
     @staticmethod
     def t3_missing(missing_ids: list[str]) -> str:
-        joined = ", ".join(_iso(x) for x in missing_ids)
-        return f"⏎ שים לב: {_iso(len(missing_ids))} ת.ז. לא אותרו ולא עודכנו: {joined}"
+        # Count only — the full ID list lives in the persistent run-summary card,
+        # so this stays short enough never to truncate on the one-line status field.
+        return f"שים לב: {_iso(len(missing_ids))} ת.ז. לא אותרו ולא עודכנו — ראה כרטיס סיכום"

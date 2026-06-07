@@ -27,6 +27,7 @@ import flet as ft
 import pyperclip
 
 from src.automation.data_source import MemoryMatrixSource, MemoryTabularSource
+from src.core.utils import ltr_isolate
 # The column keys, attendance tokens, regexes and per-cell validators live in
 # paste_parser so the typed path (here) and the smart-paste path (#17) judge a
 # cell identically. Aliased to the private names this module already uses.
@@ -635,34 +636,40 @@ class DataGridView:
             rows = self._t2_filled()
             for n, r in enumerate(rows, 1):
                 if not id_valid(r["id"].strip()):
-                    reasons.append(f"שורה {n}: ת.ז. לא תקינה")
+                    reasons.append(f"שורה {ltr_isolate(n)}: ת.ז. לא תקינה")
             return reasons
         # TYPE 1
         for n, r in enumerate(self._t1_filled(), 1):
             rid, rtype, rdate = r["id"].strip(), r["type"].strip(), r["date"].strip()
             if not id_valid(rid):
-                reasons.append(f"שורה {n}: ת.ז. לא תקינה")
+                reasons.append(f"שורה {ltr_isolate(n)}: ת.ז. לא תקינה")
             if not type_valid(rtype):
-                reasons.append(f"שורה {n}: סוג חייב להיות מספר בין 1 ל-6")
+                reasons.append(
+                    f"שורה {ltr_isolate(n)}: סוג חייב להיות מספר בין "
+                    f"{ltr_isolate(1)} ל-{ltr_isolate(6)}"
+                )
             if not rdate or not _RE_LOOSE_DATE.match(rdate):
-                reasons.append(f"שורה {n}: תאריך לא תקין")
+                reasons.append(f"שורה {ltr_isolate(n)}: תאריך לא תקין")
         return reasons
 
     def _t3_invalid_reasons(self) -> list[str]:
         reasons: list[str] = []
         if not _RE_TIME.match(self._t3_start.strip()):
-            reasons.append("שעת התחלה חייבת להיות בפורמט HH:MM")
+            reasons.append(f"שעת התחלה חייבת להיות בפורמט {ltr_isolate('HH:MM')}")
         if not _RE_TIME.match(self._t3_end.strip()):
-            reasons.append("שעת סיום חייבת להיות בפורמט HH:MM")
+            reasons.append(f"שעת סיום חייבת להיות בפורמט {ltr_isolate('HH:MM')}")
         for i, d in enumerate(self._t3_dates, 1):
             s = d.strip()
             if s and normalize_iso_date(s) is None:
-                reasons.append(f"תאריך בעמודה {i} חייב להיות תאריך תקין (dd.mm.yyyy)")
+                reasons.append(
+                    f"תאריך בעמודה {ltr_isolate(i)} חייב להיות תאריך תקין "
+                    f"({ltr_isolate('dd.mm.yyyy')})"
+                )
         if not self._t3_filled_dates():
             reasons.append("נדרש לפחות תאריך אחד")
         for n, p in enumerate(self._t3_filled_parts(), 1):
             if not id_valid(p["id"].strip()):
-                reasons.append(f"משתתף {n}: ת.ז. לא תקינה")
+                reasons.append(f"משתתף {ltr_isolate(n)}: ת.ז. לא תקינה")
         if not self._t3_filled_parts():
             reasons.append("נדרש לפחות משתתף אחד")
         return reasons

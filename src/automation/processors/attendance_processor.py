@@ -136,9 +136,13 @@ class AttendanceProcessor(BaseProcessor):
                 verify_running(lambda: self.is_stopped)
 
                 logger.set_context(stage="aura", date=date_str)
+                # date_str is ISO (yyyy-mm-dd) for the attendance lookup + UTC math
+                # below, but the operator-facing UI only ever shows Israeli
+                # dd.mm.yyyy (matches normalize_display_date / the grid).
+                date_display = datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y")
                 # Only the high-level "processing date X of Y" reaches the status
                 # field; the per-date sub-steps below go to the debug channel.
-                self.update_ui(status=Status.t3_processing(date_str, idx + 1, total_dates))
+                self.update_ui(status=Status.t3_processing(date_display, idx + 1, total_dates))
 
                 # Convert Israel-local Excel times to the UTC strings Salesforce expects.
                 start_dt_utc = _to_utc_iso(date_str, excel_data['start_time'])
@@ -231,12 +235,13 @@ class AttendanceProcessor(BaseProcessor):
             if missing_ids:
                 self.update_ui(status=Status.t3_missing(missing_ids), level="warning")
 
-            report = f"נוצרו ודווחו בהצלחה {sessions_created} מפגשים.\n"
-            if missing_ids:
-                report += f"\nשים לב: {len(missing_ids)} מספרי זהות מהאקסל לא אותרו בסיילספורס ולא עודכנו:\n"
-                report += ", ".join(missing_ids)
-
-            return report
+            # Structured run summary for the persistent summary card. The UI
+            # formats and LTR-isolates these for display; missing_ids may be empty.
+            return {
+                "type": 3,
+                "sessions_created": sessions_created,
+                "missing_ids": list(missing_ids),
+            }
 
         finally:
             # StopRequestedException and genuine failures propagate to the worker,
