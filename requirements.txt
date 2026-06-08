@@ -1,7 +1,7 @@
 selenium
 pandas
 pyotp
-pyvisual
 pyperclip
 openpyxl
+flet
 tzdata

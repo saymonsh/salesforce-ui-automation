@@ -1,4 +1,21 @@
 import json
+import re
+
+from src.core.logger import logger
+
+# Israeli national IDs (תעודת זהות) are 9 digits — 8 when a leading zero was
+# dropped by a numeric Excel/JSON cell. Aura debug dumps echo participant records
+# verbatim, so before a full response reaches the debug channel (console + the
+# copyable activity feed) we mask those runs, keeping only the last 3 digits so a
+# row is still correlatable without exposing the full ID. The 8–9 bound is
+# deliberate: it targets IDs while leaving 13-digit epoch timestamps and 15/18-char
+# Salesforce record IDs (which contain letters) untouched.
+_PII_ID_RE = re.compile(r"(?<!\d)\d{8,9}(?!\d)")
+
+
+def _redact_pii(text: str) -> str:
+    return _PII_ID_RE.sub(lambda m: "*" * (len(m.group()) - 3) + m.group()[-3:], text)
+
 
 class SalesforceApiClient:
     def __init__(self, driver):
@@ -147,12 +164,9 @@ class SalesforceApiClient:
         }
         
         data = self._execute_aura_request('/aura?r=1&aura.RelatedListUi.postRelatedListRecords=1', payload)
-        
-        print("\n=== GET PARTICIPANTS RESPONSE ===")
-        import json
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-        print("=================================\n")
-        
+
+        logger.debug(f"getParticipants response: {_redact_pii(json.dumps(data, ensure_ascii=False))}", stage="aura")
+
         mapping = {}
         try:
             action = data.get('actions', [{}])[0]
@@ -206,12 +220,9 @@ class SalesforceApiClient:
         }
         
         data = self._execute_aura_request('/aura?r=2&aura.RecordUi.createRecord=1', payload)
-        
-        print("\n=== CREATE SESSION RESPONSE ===")
-        import json
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-        print("=================================\n")
-        
+
+        logger.debug(f"createRecord response: {_redact_pii(json.dumps(data, ensure_ascii=False))}", stage="aura")
+
         try:
             action = data.get('actions', [{}])[0]
             if action.get('state') == 'ERROR':
@@ -285,7 +296,7 @@ class SalesforceApiClient:
         except Exception as e:
             raise Exception(f"Error parsing startFlow response: {e}")
 
-        print(f"\n=== START SD FLOW: created {len(delivery_records)} service delivery record(s) ===\n")
+        logger.debug(f"startFlow → {len(delivery_records)} service delivery record(s)", stage="aura")
         return serialized_state, delivery_records
 
     def finish_create_sd_flow(self, serialized_state, delivery_records):
@@ -345,7 +356,7 @@ class SalesforceApiClient:
         except Exception as e:
             raise Exception(f"Error parsing navigateFlow response: {e}")
 
-        print("\n=== FINISH SD FLOW: interview FINISHED ===\n")
+        logger.debug("navigateFlow → interview FINISHED", stage="aura")
 
     def report_attendance(self, records_to_update):
         if not records_to_update:
@@ -371,12 +382,9 @@ class SalesforceApiClient:
         }
         
         data = self._execute_aura_request('/aura?r=3&aura.ApexAction.execute=1', payload)
-        
-        print("\n=== REPORT ATTENDANCE RESPONSE ===")
-        import json
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-        print("=================================\n")
-        
+
+        logger.debug(f"updateServiceDelivery response: {_redact_pii(json.dumps(data, ensure_ascii=False))}", stage="aura")
+
         try:
             action = data.get('actions', [{}])[0]
             state = action.get('state')

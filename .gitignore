@@ -18,6 +18,7 @@ selenium_session.txt
 *.bat
 __pycache__/parameters.cpython-312.pyc
 config.ini
+draft.json
 
 .gemini/
 תיעוד API - דיווח נוכחות.md

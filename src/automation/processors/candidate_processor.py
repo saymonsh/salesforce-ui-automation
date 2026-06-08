@@ -1,78 +1,72 @@
 import pyperclip
-from src.core.utils import smart_sleep, verify_running
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from src.automation.processors.base_processor import BaseProcessor
 from src.automation import selectors as S
 from src.core.config import config_instance as parm
-from src.core.exceptions import StopException
+from src.core.exceptions import StopRequestedException
+from src.core.logger import logger
+from src.core.status_messages import Status
+from src.core.utils import interruptible_find_element
 
 
 class CandidateProcessor(BaseProcessor):
-    def process(self, uploaded_file_path):
-        try:
-            excel_data = self._read_excel(uploaded_file_path)
-            if excel_data is None:
-                return
+    def process(self, source):
+        # `source` is a TabularSource (issue #15) — Excel or the manual-entry grid.
+        rows = self._load_rows(source)
+        if rows is None:
+            return
 
-            verify_running(lambda: self.is_stopped)
+        self.check_for_stop()
 
-            # Launch Driver & Login
-            self._setup_driver()
-            self._login(parm.URL)
+        # Launch Driver & Login
+        self._setup_driver()
+        self._login(parm.URL)
 
-            verify_running(lambda: self.is_stopped)
-            # Specific long path click from add_candidats.py
-            self.driver.find_element(By.XPATH, S.CANDIDATE_INITIAL_BUTTON).click()
+        self.check_for_stop()
+        # Specific long path click from add_candidats.py
+        init_btn = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_INITIAL_BUTTON, check_stop_func=lambda: self.is_stopped)
+        init_btn.click()
 
-            counter = 1
-            smart_sleep(10, lambda: self.is_stopped)
+        total = len(rows)
+        if self.signals:
+            self.signals.started.emit(total)
 
-            print(f"Total rows in Excel: {len(excel_data)}")
+        for index, row in enumerate(rows):
+            self.check_for_stop()
 
-            for index, row in excel_data.iterrows():
-                verify_running(lambda: self.is_stopped)
+            id_number = row['תעודות זהות']
 
-                id_number = row['תעודות זהות']
+            id_number = int(id_number)
+            n = index + 1
+            logger.set_context(stage="candidate", row=n)
+            self.update_ui(status=Status.t2_processing(n, total, id_number))
+            logger.info(f"adding candidate id {id_number}", stage="candidate", row=n)
+            self.check_for_stop()
+            
+            pyperclip.copy(str(id_number))
+            search = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_ID_INPUT, check_stop_func=lambda: self.is_stopped)
+            search.click()
+            self.check_for_stop()
+            
+            search.clear()
+            search.send_keys(Keys.CONTROL, 'v')
+            self.check_for_stop()
+            
+            add_id = interruptible_find_element(self.driver, By.XPATH,
+                                         S.CANDIDATE_CHECKBOX_TEMPLATE.format(id_number=id_number), check_stop_func=lambda: self.is_stopped)
+            self.driver.execute_script("arguments[0].click();", add_id)
+            
+            self.check_for_stop()
+            clear = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_ID_INPUT, check_stop_func=lambda: self.is_stopped)
+            clear.clear()
+            
+            if self.signals:
+                self.signals.item_processed.emit()
 
-                percent = int((counter / len(excel_data)) * 100)
-                print(f"{counter}/{len(excel_data)} - {percent}%")
-                self.update_ui(progress=percent)
-                
-                id_number = int(id_number)
-                verify_running(lambda: self.is_stopped)
-                
-                pyperclip.copy(str(id_number))
-                search = self.driver.find_element(By.XPATH, S.CANDIDATE_ID_INPUT)
-                search.click()
-                verify_running(lambda: self.is_stopped)
-                
-                search.clear()
-                search.send_keys(Keys.CONTROL, 'v')
-                verify_running(lambda: self.is_stopped)
-                
-                add_id = self.driver.find_element(By.XPATH,
-                                             S.CANDIDATE_CHECKBOX_TEMPLATE.format(id_number=id_number))
-                self.driver.execute_script("arguments[0].click();", add_id)
-                
-                verify_running(lambda: self.is_stopped)
-                clear = self.driver.find_element(By.XPATH, S.CANDIDATE_ID_INPUT)
-                clear.clear()
-                counter += 1
-                
-        except StopException:
-            print("Candidate Processor: Stopped by user.")
-            self.update_ui(status="Execution Stopped")
-            self._force_close_driver()
-
-        except Exception as e:
-            if self.is_stopped:
-                # Fallback if StopException missed or driver closed
-                print("Candidate Processor: Stopped by user (via generic exception).")
-                self.update_ui(status="Execution Stopped")
-            else:
-                print(f"An unexpected error occurred: {e}")
-                self.update_ui(status="Error occurred", error=True)
-
-        finally:
-            self.update_ui(status="Please click 'next' to continue")
+        logger.reset_context()
+        # End state requires a manual "next" in Salesforce → warning, not success.
+        # Keep Chrome open so the operator can complete that step (the worker
+        # detaches instead of closing the driver when this flag is set).
+        self.keep_browser_open = True
+        self.update_ui(status=Status.t2_done(total), level="warning")

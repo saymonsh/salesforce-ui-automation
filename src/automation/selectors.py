@@ -11,6 +11,10 @@ LOGIN_PASSWORD_INPUT = "//input[@id='password']"
 LOGIN_SUBMIT_BUTTON = "//input[@id='Login']"
 LOGIN_TOTP_INPUT = "//input[@id='tc']"
 LOGIN_TOTP_SAVE = "//input[@id='save']"
+# Salesforce's login error banner (e.g. "A security policy at this org is
+# preventing you from logging in."). Read only on the failure path to surface
+# the real reason a login timed out — never part of the happy path.
+LOGIN_ERROR_BANNER = "//div[@id='error']"
 
 # ---- Search Flow (actions.perform_search) ----
 SEARCH_BUTTON = "//button[@class='slds-button slds-button_neutral search-button slds-truncate']"

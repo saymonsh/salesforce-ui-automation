@@ -1,7 +1,4 @@
-import os
-from PySide6.QtCore import Slot
-from PySide6.QtWidgets import QMessageBox
-from src.core.config import config_instance as parm
+from src.core.status_messages import Status
 from src.ui.settings_controller import SettingsController
 from src.ui.worker_manager import WorkerManager
 
@@ -9,104 +6,136 @@ from src.ui.worker_manager import WorkerManager
 class Controller:
     """
     Main application controller. Acts as a thin coordinator that delegates to:
-    - SettingsController: settings window management
-    - WorkerManager: worker/thread lifecycle
+    - SettingsController: settings dialog management
+    - WorkerManager: worker lifecycle
     """
 
-    def __init__(self, app, main_window, main_ui):
-        self.app = app
-        self.main_window = main_window
-        self.main_ui = main_ui
-        self.uploaded_file_path = parm.UPLOADED_FILE_PATH
+    def __init__(self, page, main_view):
+        self.page = page
+        self.main_view = main_view
 
-        # Sub-controllers
-        self.settings_controller = SettingsController(main_ui, self._show_alert)
-        self.worker_manager = WorkerManager(main_ui, self._show_alert)
+        self.settings_controller = SettingsController(page, main_view)
+        self.worker_manager = WorkerManager(main_view)
 
         self._attach_events()
-        self._init_ui_state()
 
-    def _init_ui_state(self):
-         if self.uploaded_file_path:
-            self.main_ui["FileDialog_fileUpload"].text = os.path.basename(self.uploaded_file_path)
-
-    def _show_alert(self, parent, title, message, icon):
-        msg_box = QMessageBox(parent)
-        msg_box.setWindowTitle(title)
-        msg_box.setText(message)
-        msg_box.setIcon(icon)
-        # Detailed styling: White background for box, labels transparent (inherits white) or white. Text black.
-        msg_box.setStyleSheet("QMessageBox { background-color: white; color: black; } QLabel { color: black; background-color: white; } QPushButton { color: black; background-color: #f0f0f0; border: 1px solid #c0c0c0; border-radius: 4px; padding: 5px; min-width: 60px; } QPushButton:hover { background-color: #e0e0e0; }")
-        msg_box.exec()
+        # State tracking for progress
+        self.total_items = 0
+        self.current_item = 0
 
     def _attach_events(self):
-        self.main_ui["FileDialog_fileUpload"].on_file_selected = self.on_browse_button_click
-        self.main_ui["Button_run"].on_click = self.on_run_click
-        self.main_ui["Button_stop"].on_click = self.on_stop_click
-        self.main_ui["Button_setting"].on_click = self.on_setting_click
-        self.main_ui["Button_help"].on_click = self.on_help_click
+        self.main_view.bind_actions(
+            on_run=self.on_run_click,
+            on_stop=self.on_stop_click,
+            on_settings=self.on_setting_click,
+            on_help=self.on_help_click,
+        )
 
-    # =========================================================================
-    # Event Handlers
-    # =========================================================================
+    def on_help_click(self, _event=None):
+        self.main_view.show_help_dialog()
 
-    def on_help_click(self, button=None):
-        from src.ui.help_dialog import HelpDialog
-        dialog = HelpDialog(self.main_window)
-        dialog.exec()
+    def on_setting_click(self, _event=None):
+        self.settings_controller.open_settings()
 
-    def on_browse_button_click(self, file_path):
-        self.uploaded_file_path = file_path
-        print(f"📂 File selected: {self.uploaded_file_path}")
-
-    def on_setting_click(self, button=None):
-        self.settings_controller.open_settings(self.main_window)
-        # Sync back uploaded path after settings may have changed
-        self.uploaded_file_path = parm.UPLOADED_FILE_PATH
-
-    def on_stop_click(self, button=None):
+    def on_stop_click(self, _event=None):
         self.worker_manager.stop()
 
-    def on_run_click(self, button=None):
-        started = self.worker_manager.start(self.uploaded_file_path, self.main_window)
+    def on_run_click(self, _event=None):
+        # Input always comes from the in-app entry grid now (epic #14 / #18 —
+        # Excel is imported into the grid, never run directly).
+        source = self.main_view.get_manual_source()
+        if source is None:
+            return  # the grid is empty/invalid — main_view already alerted
+
+        started = self.worker_manager.start(source)
         if not started:
             return
 
-        # Connect Signals
         self.worker_manager.connect_signals(
+            on_started=self.on_worker_started,
             on_finished=self.on_worker_finished,
-            on_progress=self.update_progress,
-            on_status=self.update_status
+            on_item_processed=self.on_item_processed,
+            on_status=self.update_status,
+            on_log=self.on_log,
         )
-
         self.worker_manager.start_thread()
 
-    # =========================================================================
-    # Worker Signal Handlers
-    # =========================================================================
+    def on_log(self, line, level):
+        # Debug channel → activity feed. enqueue_terminal_line is thread-safe
+        # (it just puts on a queue drained by the UI loop), so no run_task needed.
+        self.main_view.enqueue_terminal_line(line, level=level)
 
-    @Slot(int)
-    def update_progress(self, value):
-        self.main_ui["Progressbar"].value = value
-
-    @Slot(str)
-    def update_status(self, status):
-        if status != "Done":
-             self.main_ui["Text_mainStatus"].text = status
-
-    @Slot(bool, str)
-    def on_worker_finished(self, success, message):
-        self.worker_manager.set_idle_ui()
-
-        if not success:
-            self.main_ui["Text_mainStatus"].text = "אירעה שגיאה"
-            self._show_alert(self.main_window, "שגיאה", message, QMessageBox.Critical)
+    def on_worker_started(self, total_items: int):
+        self.total_items = max(1, total_items)
+        self.current_item = 0
+        # Status text is owned by the processor's milestone messages (e.g. the
+        # per-row "מעבד שורה N…"); here we only seed the progress denominator.
+        if self.page:
+            self.page.run_task(self._safe_worker_started, total_items)
         else:
-            if message and message not in ["Done", "Execution Stopped", "הפעולה הופסקה על ידי המשתמש."]:
-                self.main_ui["Text_mainStatus"].text = "התהליך הושלם"
-                self._show_alert(self.main_window, "דוח סיכום פעולה", message, QMessageBox.Information)
-            else:
-                self.main_ui["Text_mainStatus"].text = message
+            self.main_view.set_progress(0.0, 0, self.total_items)
 
-        # Cleanup
+    async def _safe_worker_started(self, total_items):
+        self.main_view.set_progress(0.0, 0, self.total_items)
+
+    def on_item_processed(self):
+        self.current_item += 1
+        percentage = self.current_item / self.total_items
+        if self.page:
+            self.page.run_task(self._safe_update_progress, percentage, self.current_item, self.total_items)
+        else:
+            self.main_view.set_progress(percentage, self.current_item, self.total_items)
+
+    async def _safe_update_progress(self, percentage, current, total):
+        self.main_view.set_progress(percentage, current, total)
+
+    def update_status(self, status, level=None):
+        if self.page:
+            self.page.run_task(self._safe_update_status, status, level)
+        else:
+            self.main_view.set_status(status, level=level)
+
+    async def _safe_update_status(self, status, level=None):
+        self.main_view.set_status(status, level=level)
+
+    def on_worker_finished(self, success, message, detail="", summary=None):
+        if self.page:
+            self.page.run_task(self._safe_worker_finished, success, message, detail, summary)
+        else:
+            self._apply_finished(success, message, detail, summary)
+            self.worker_manager.cleanup()
+
+    async def _safe_worker_finished(self, success, message, detail="", summary=None):
+        self._apply_finished(success, message, detail, summary)
         self.worker_manager.cleanup()
+
+    def _apply_finished(self, success, message, detail="", summary=None):
+        """Resolve the run's final UI state.
+
+        On clean success the processor has already emitted its type-specific
+        done message on the status channel (t1/t2/t3_done), so we only reset to
+        idle and lock the progress at 100%. The controller owns just the two
+        cases the processor can't speak to: a hard failure and a user stop.
+
+        On failure the status field shows a short title (it is single-line and
+        truncates), and a dialog carries the full actionable hint so it is never
+        cut off.
+        """
+        self.worker_manager.set_idle_ui()
+        if not success:
+            self.main_view.set_status(Status.fatal_error(message), level="error")
+            self.main_view.set_progress(0.0)
+            # The status field is single-line; a dialog carries the full text so
+            # the actionable hint is never truncated.
+            full = f"{message}\n\n{detail}" if detail else message
+            self.main_view.show_alert("התהליך נכשל", full, "error")
+        elif message == "Execution Stopped":
+            self.main_view.set_status(Status.stopped(self.current_item, self.total_items))
+        else:
+            self.main_view.set_progress(1.0)
+            # Persistent end-of-run summary (currently TYPE 3): full session count +
+            # the complete, copyable list of IDs that weren't updated — so nothing
+            # is lost to the one-line status field's truncation.
+            if summary:
+                self.main_view.show_run_summary(summary)
+

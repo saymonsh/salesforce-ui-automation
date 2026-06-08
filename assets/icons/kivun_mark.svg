@@ -1,0 +1,10 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Kivun-inspired faceted diamond mark -->
+  <g transform="rotate(45 32 32)">
+    <rect x="14" y="14" width="36" height="36" rx="9" fill="#de2952"/>
+    <path d="M32 14 H41 A9 9 0 0 1 50 23 V32 Z" fill="#a01038"/>
+    <path d="M32 50 H23 A9 9 0 0 1 14 41 V32 Z" fill="#f27894"/>
+  </g>
+  <!-- play triangle -->
+  <path d="M27 23 L43 32 L27 41 Z" fill="#ffffff"/>
+</svg>
