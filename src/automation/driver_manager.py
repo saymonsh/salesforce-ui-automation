@@ -89,7 +89,7 @@ class DriverManager:
         if self.driver:
             try:
                 self.driver.quit()
-            except Exception as e:
+            except Exception:
                 pass
             finally:
                 self.driver = None
@@ -97,7 +97,7 @@ class DriverManager:
         if self.chromedriver_process:
             try:
                 self.chromedriver_process.terminate()
-            except Exception as e:
+            except Exception:
                 pass
             finally:
                 self.chromedriver_process = None
