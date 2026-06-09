@@ -35,6 +35,9 @@ class WorkerSignals:
     log
         str: formatted debug line for the activity feed/console
         str: severity ("DEBUG" / "INFO" / "WARNING" / "ERROR")
+    screencast_frame
+        str: a single base64 JPEG frame of the live Chrome window (issue #19),
+        emitted from the screencast reader thread. The UI keeps only the latest.
 
     The status and log channels are deliberately separate (issue #12): status
     is clean, high-level, Hebrew; log is technical, English, verbose.
@@ -45,6 +48,7 @@ class WorkerSignals:
         self.item_processed = _Emitter()
         self.status = _Emitter()
         self.log = _Emitter()
+        self.screencast_frame = _Emitter()
 
 
 class AutomationWorker:
@@ -72,6 +76,11 @@ class AutomationWorker:
         # duration of this run, and honour the configured verbosity.
         logger.set_verbose(getattr(parm, "DEBUG_LOGGING", False))
         logger.bind(lambda line, level: self.signals.log.emit(line, level))
+        # Feed the live Chrome screencast frames to the UI (issue #19). The
+        # driver_manager starts the screencast when it creates Chrome; here we
+        # just point its frame sink at the worker signal so the embedded browser
+        # panel mirrors the run. View-only — no input is sent back.
+        self.driver_manager.on_frame = lambda b64: self.signals.screencast_frame.emit(b64)
         try:
             self.processor = self.processor_class(signals=self.signals, driver_manager=self.driver_manager)
 

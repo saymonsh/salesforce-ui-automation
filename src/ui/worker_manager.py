@@ -47,13 +47,15 @@ class WorkerManager:
 
         return True
 
-    def connect_signals(self, on_started, on_finished, on_item_processed, on_status, on_log):
+    def connect_signals(self, on_started, on_finished, on_item_processed, on_status, on_log, on_frame=None):
         if self.worker:
             self.worker.signals.started.connect(on_started)
             self.worker.signals.finished.connect(on_finished)
             self.worker.signals.item_processed.connect(on_item_processed)
             self.worker.signals.status.connect(on_status)
             self.worker.signals.log.connect(on_log)
+            if on_frame is not None:
+                self.worker.signals.screencast_frame.connect(on_frame)
 
     def start_thread(self):
         if self.worker:

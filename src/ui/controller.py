@@ -57,6 +57,7 @@ class Controller:
             on_item_processed=self.on_item_processed,
             on_status=self.update_status,
             on_log=self.on_log,
+            on_frame=self.on_frame,
         )
         self.worker_manager.start_thread()
 
@@ -64,6 +65,12 @@ class Controller:
         # Debug channel → activity feed. enqueue_terminal_line is thread-safe
         # (it just puts on a queue drained by the UI loop), so no run_task needed.
         self.main_view.enqueue_terminal_line(line, level=level)
+
+    def on_frame(self, b64):
+        # Live Chrome screencast frame → embedded browser panel (issue #19).
+        # enqueue_frame is thread-safe (single-slot, drained on the UI loop), so
+        # like on_log it needs no run_task — important, as frames arrive fast.
+        self.main_view.enqueue_frame(b64)
 
     def on_worker_started(self, total_items: int):
         self.total_items = max(1, total_items)

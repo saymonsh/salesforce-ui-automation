@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 import queue
 import threading
@@ -36,6 +37,12 @@ _PANEL_SHADOW = ft.BoxShadow(
 )
 
 _PANEL_WIDTH = 440
+# 1×1 transparent PNG — the live-browser image's initial/blank source (Flet's
+# ft.Image needs a valid src; this never actually shows because the panel keeps
+# the placeholder mounted until the first real frame arrives).
+_BLANK_IMG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
 _RING_TRACK = ft.Colors.with_opacity(0.14, "#2b2b2b")
 _LINEAR_TRACK = ft.Colors.with_opacity(0.16, "#2b2b2b")
 _NEUTRAL_RING = "#c4c4c4"  # calm full ring for the 'action required' state (no color clash)
@@ -73,6 +80,12 @@ class MainView:
         # Plain-text mirror of the rendered feed lines — backs copy-all / save /
         # clear so they don't have to read back ft.Text controls. Capped alongside.
         self._feed_lines: list[str] = []
+        # Live browser preview (issue #19): the latest screencast frame arrives on
+        # a worker/screencast thread and is held in a single slot (only the newest
+        # matters); a UI-loop task drains it into the embedded panel's image.
+        self._latest_frame: Optional[str] = None
+        self._frame_lock = threading.Lock()
+        self._browser_has_frame = False
 
         self._build_page()
         self._build_controls()
@@ -211,6 +224,31 @@ class MainView:
             ),
         )
         self.logs_holder = ft.Container(expand=True, content=self.logs_empty_view)
+
+        # --- Embedded live browser preview (issue #19) --------------------------
+        # A frame-by-frame mirror of the Selenium-driven Chrome window, fed by the
+        # CDP screencast. gapless_playback keeps the image steady (no white flash)
+        # as the src bytes are swapped per frame.
+        self.browser_image = ft.Image(
+            src=_BLANK_IMG, fit=ft.BoxFit.CONTAIN, expand=True, gapless_playback=True,
+        )
+        self.browser_placeholder = ft.Container(
+            alignment=ft.Alignment.CENTER, expand=True,
+            content=ft.Column(
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER, spacing=Space.MD,
+                controls=[
+                    ft.ProgressRing(width=34, height=34, stroke_width=4, color=Color.BRAND),
+                    ft.Text("ממתין לדפדפן…", color=Color.TEXT_SECONDARY, weight=ft.FontWeight.W_600),
+                    ft.Text("הדפדפן יופיע כאן ברגע שהריצה תתחיל",
+                            color=Color.TEXT_TERTIARY, size=Type.CAPTION[0]),
+                ],
+            ),
+        )
+        self.browser_body = ft.Container(
+            expand=True, bgcolor="#ffffff", border_radius=Radius.MD,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS, content=self.browser_placeholder,
+        )
 
         # --- Manual-entry grid (issue #16) --------------------------------------
         self.data_grid = DataGridView(
@@ -580,6 +618,112 @@ class MainView:
             ),
         )
 
+    # ------------------------------------------------------------ browser preview
+    def _build_browser_panel(self) -> ft.Container:
+        """The embedded live-browser panel (issue #19).
+
+        Same glass treatment as the console panel, with a slim title bar carrying
+        a 'live' indicator and the mirrored Chrome image below. Built hidden; it
+        is revealed beside the console only while a run is in flight (see
+        _apply_run_layout), filling the empty background space the console leaves.
+        """
+        live_dot = ft.Container(width=9, height=9, border_radius=Radius.PILL, bgcolor=Color.BRAND)
+        titlebar = ft.Row(
+            spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Icon(ft.Icons.PUBLIC_ROUNDED, size=18, color=Color.TEXT_SECONDARY),
+                ft.Text("דפדפן חי", size=Type.TITLE[0], weight=ft.FontWeight.W_700, color=Color.TEXT_PRIMARY),
+                ft.Container(expand=True),
+                live_dot,
+                ft.Text("LIVE", size=Type.CAPTION[0], weight=ft.FontWeight.W_700, color=Color.BRAND),
+            ],
+        )
+        return ft.Container(
+            visible=False, expand=True,
+            margin=ft.margin.only(top=Space.XS, bottom=Space.XXL, left=Space.LG),
+            bgcolor=_GLASS_PANEL, border=ft.border.all(1, ft.Colors.with_opacity(0.55, "#ffffff")),
+            border_radius=24, shadow=_PANEL_SHADOW, padding=Space.XL,
+            content=ft.Column(
+                spacing=Space.MD, expand=True,
+                controls=[
+                    titlebar,
+                    ft.Divider(color=ft.Colors.with_opacity(0.5, Color.BORDER), height=1),
+                    self.browser_body,
+                ],
+            ),
+        )
+
+    def enqueue_frame(self, b64: str) -> None:
+        """Thread-safe: store the newest screencast frame (drops any older one not
+        yet drawn — only the latest frame is worth showing)."""
+        with self._frame_lock:
+            self._latest_frame = b64
+
+    async def _drain_frames(self) -> None:
+        """UI-loop task: paint the newest frame into the panel at ~12fps. Capping
+        the rate keeps the image bridge light no matter how fast Chrome streams."""
+        while True:
+            await asyncio.sleep(0.08)
+            with self._frame_lock:
+                frame, self._latest_frame = self._latest_frame, None
+            if frame is None:
+                continue
+            self._set_frame(frame)
+
+    def _set_frame(self, b64: str) -> None:
+        # Flet 0.84's Image takes bytes (no src_base64); decode the CDP frame once.
+        try:
+            self.browser_image.src = base64.b64decode(b64)
+        except Exception:
+            return
+        if not self._browser_has_frame:
+            # First frame: swap the placeholder out and do one full update so the
+            # body re-renders with the image control mounted.
+            self.browser_body.content = self.browser_image
+            self._browser_has_frame = True
+            self._safe_update()
+        else:
+            # Steady state: update just the image control (cheap; no full page diff).
+            try:
+                self.browser_image.update()
+            except Exception:
+                self._safe_update()
+
+    def reset_browser(self) -> None:
+        """Drop the current frame and return to the 'waiting' placeholder."""
+        self._browser_has_frame = False
+        self.browser_image.src = _BLANK_IMG
+        self.browser_body.content = self.browser_placeholder
+
+    def _apply_run_layout(self, running: bool) -> None:
+        """Show/hide the live-browser panel beside the console (issue #19).
+
+        While running, the console panel keeps its fixed width on the RTL leading
+        (right) side and the browser panel fills the remaining space to its left;
+        idle, the console returns to the centre on its own. Also pins the app
+        above the (behind-the-scenes) Chrome window so the mirror stays visible."""
+        row = getattr(self, "_console_row", None)
+        if running:
+            self.reset_browser()
+            self._browser_panel.visible = True
+            if row is not None:
+                if self._browser_panel not in row.controls:
+                    row.controls.append(self._browser_panel)
+                row.alignment = ft.MainAxisAlignment.START
+        else:
+            self._browser_panel.visible = False
+            self.reset_browser()
+            if row is not None:
+                if self._browser_panel in row.controls:
+                    row.controls.remove(self._browser_panel)
+                row.alignment = ft.MainAxisAlignment.CENTER
+        # Keep the app on top while Chrome renders behind it (the screencast keeps
+        # flowing thanks to the occlusion-disable flags on the Chrome side).
+        try:
+            self.page.window.always_on_top = running
+        except Exception:  # pragma: no cover - older/newer Flet window API
+            pass
+
     def _build_chrome(self):
         """A thin window-chrome strip ON THE BACKGROUND (above the panel):
         a centered drag handle + window controls at the top-right. The native
@@ -614,6 +758,9 @@ class MainView:
         )
 
     def _render(self) -> None:
+        # The live-browser panel (issue #19) is built once and joins the row only
+        # while a run is in flight (see _apply_run_layout).
+        self._browser_panel = self._build_browser_panel()
         console = ft.Row(
             expand=True, alignment=ft.MainAxisAlignment.CENTER,
             vertical_alignment=ft.CrossAxisAlignment.STRETCH,
@@ -634,6 +781,7 @@ class MainView:
         self.page.add(root)
         self.page.update()
         self.page.run_task(self._drain_feed)  # start the activity-feed drainer
+        self.page.run_task(self._drain_frames)  # start the live-browser frame drainer
 
     # --------------------------------------------------------------- actions
     def _action_clicked(self, e):
@@ -850,6 +998,8 @@ class MainView:
 
     def set_running(self, is_running: bool) -> None:
         self._running = is_running
+        # Reveal/hide the embedded live-browser panel beside the console (#19).
+        self._apply_run_layout(is_running)
         self.action_circle.disabled = False  # re-enable after a stop/finish cycle
         # Draw the eye to the feed button while output is streaming.
         self.feed_button.icon_color = Color.BRAND if is_running else Color.TEXT_SECONDARY
