@@ -118,9 +118,11 @@ class AutomationWorker:
                 and getattr(self.processor, "keep_browser_open", False)
             )
             if keep_open:
-                self.driver_manager.detach_driver()
-                # Tell the UI to release the overlay and hand Chrome back to the
-                # operator as a normal standalone window for the manual step.
+                # Leave Chrome AND chromedriver fully alive so the operator can
+                # finish the manual step in the still-embedded browser. We do NOT
+                # close anything here: the controller captures this driver and
+                # closes it cleanly (driver.quit) when the operator clicks "done"
+                # or starts a new run. (No detach hack, no orphaned browser.)
                 self.signals.browser_detached.emit()
             else:
                 self.driver_manager.close_driver()

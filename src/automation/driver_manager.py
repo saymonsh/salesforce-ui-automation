@@ -8,7 +8,6 @@ from src.automation.win_window import (
     find_chrome_window,
     find_window_by_title,
     reframe_as_owned,
-    window_pid,
 )
 from src.core.config import config_instance as config
 from src.core.constants import APP_WINDOW_TITLE
@@ -49,10 +48,6 @@ class DriverManager:
         # the desktop before the UI grabs it) and hands over the handle.
         self.on_browser_ready = None
         self.chrome_hwnd = None
-        # Browser-process pid (from the window) so close_driver can force the whole
-        # Chrome process tree closed — with detach=True, driver.quit() does NOT
-        # reliably close Chrome, which orphaned dozens of windows over a session.
-        self.chrome_pid = None
 
     @staticmethod
     def setup_proxy():
@@ -124,12 +119,10 @@ class DriverManager:
         # modals overlap buttons (ElementClickIntercepted). At 1:1 the CSS viewport
         # equals the physical panel width, keeping the tuned desktop layout.
         chrome_options.add_argument("--force-device-scale-factor=1")
-        # Keep Chrome alive if chromedriver exits without an explicit quit. This is
-        # what lets a run end in an 'action required' state with the window left
-        # open for the operator (see detach_driver): we can terminate chromedriver
-        # to free port 9515 for the next run without slamming the browser shut.
-        # Normal completion still calls driver.quit(), which closes Chrome anyway.
-        chrome_options.add_experimental_option("detach", True)
+        # NOTE: detach is deliberately OFF. With it on, driver.quit() didn't
+        # reliably close Chrome and every run leaked a browser. The TYPE 2 handoff
+        # instead keeps the whole driver alive (the controller holds it) and closes
+        # it gracefully when the operator is done — see worker.run / controller.
         # Defensive: keep the renderer painting even if the app window ever sits in
         # front of Chrome. The owned overlay normally stacks Chrome above the app,
         # but these flags cost nothing and avoid any throttling surprises.
@@ -170,7 +163,6 @@ class DriverManager:
         if not hwnd:
             logger.debug("chrome window not found — no embedded panel", stage="driver")
             return
-        self.chrome_pid = window_pid(hwnd)
         # Kill the taskbar flash: reframe Chrome as a frameless owned tool-window
         # the instant it's found (synchronously, in this worker thread) — the same
         # reframe the overlay does, but without waiting for the UI round-trip, so
@@ -187,23 +179,11 @@ class DriverManager:
             logger.debug(f"on_browser_ready failed: {e}", stage="driver")
 
     def close_driver(self):
-        # Kill Chrome's process tree FIRST. With detach=True (needed for the TYPE 2
-        # handoff), driver.quit() does NOT reliably close Chrome — and if Chrome is
-        # unresponsive, quit() can block, so doing it first would risk hanging here
-        # and leaking the browser. Killing by pid up front guarantees the browser
-        # is gone on every exit path, including a user 'stop'. No-op if already gone.
-        if self.chrome_pid:
-            try:
-                subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(self.chrome_pid)],
-                    capture_output=True, check=False,
-                )
-            except Exception:
-                pass
-            finally:
-                self.chrome_pid = None
-        self.chrome_hwnd = None
-
+        """Close the browser fully. With detach OFF, driver.quit() closes Chrome
+        gracefully (and cleans its temp profile); terminating chromedriver also
+        closes Chrome, so the browser is gone on every exit path — no force-kill.
+        This is also the clean shutdown for the TYPE 2 handoff once the operator
+        is done (the controller calls it on the driver it kept alive)."""
         if self.driver:
             try:
                 self.driver.quit()
@@ -219,26 +199,5 @@ class DriverManager:
                 pass
             finally:
                 self.chromedriver_process = None
+        self.chrome_hwnd = None
         logger.debug("chromedriver terminated", stage="driver")
-
-    def detach_driver(self):
-        """Release our handle on Chrome but leave the window open.
-
-        Used when a run ends in an 'action required' state and the operator still
-        has a manual step to finish in the browser. We deliberately do NOT call
-        ``driver.quit()`` (that closes the window); instead we drop the session
-        reference and terminate the chromedriver subprocess. Thanks to the
-        ``detach`` option set in create_driver, killing chromedriver leaves Chrome
-        standing while freeing port 9515 for the next run. The UI separately hands
-        the window back to the operator as a normal standalone window (the overlay
-        is released) so they can finish the manual step.
-        """
-        self.driver = None
-        if self.chromedriver_process:
-            try:
-                self.chromedriver_process.terminate()
-            except Exception:
-                pass
-            finally:
-                self.chromedriver_process = None
-        logger.debug("chromedriver detached — browser left open", stage="driver")

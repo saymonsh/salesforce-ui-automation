@@ -10,7 +10,6 @@ import flet as ft
 
 from src.automation.win_window import (
     BrowserOverlay,
-    close_window,
     find_window_by_title,
     host_metrics,
     set_process_dpi_aware,
@@ -95,6 +94,7 @@ class MainView:
         self._action_required = False
         self._on_run: Optional[Callable] = None
         self._on_stop: Optional[Callable] = None
+        self._on_close_handoff: Optional[Callable] = None
         # Terminal output arrives from worker/chromedriver threads; queue it and
         # drain on the UI loop in batches (decoupled = no loop flooding/freeze).
         # Each item is (text, level) where level is a debug-channel severity.
@@ -769,8 +769,9 @@ class MainView:
         if self.browser_close_btn is not None:
             self.browser_close_btn.visible = False
         if overlay is not None:
-            overlay.stop()
-            close_window(overlay.chrome_hwnd)
+            overlay.stop()  # stop tracking; the driver close shuts the window
+        if self._on_close_handoff is not None:
+            self._on_close_handoff()  # controller: driver.quit() → Chrome closes cleanly
         # The whole operation is over → return the WHOLE screen to its clean idle
         # state, not just the button: drop the 'action required' status text, the
         # warning glyph, the amber progress bar and the counter — a fresh 'ready'
@@ -835,8 +836,10 @@ class MainView:
         console returns to the centre and the overlay is torn down."""
         row = getattr(self, "_console_row", None)
         if running:
-            # A new run while a handoff browser is still embedded: close it —
-            # the new run brings its own Chrome into the panel.
+            # A new run started while a handoff browser was still embedded: fold it
+            # away. The controller already closed the handoff driver (see
+            # on_run_click → close_handoff), so here we only stop tracking the old
+            # overlay; the new run brings its own Chrome into the panel.
             if self._browser_handoff:
                 self._browser_handoff = False
                 if self.browser_close_btn is not None:
@@ -844,7 +847,6 @@ class MainView:
                 overlay, self._overlay = self._overlay, None
                 if overlay is not None:
                     overlay.stop()
-                    close_window(overlay.chrome_hwnd)
             self.reset_browser()
             self._browser_panel.visible = True
             if row is not None:
@@ -931,9 +933,10 @@ class MainView:
         elif self._on_run:
             self._on_run(e)
 
-    def bind_actions(self, on_run, on_stop, on_settings, on_help) -> None:
+    def bind_actions(self, on_run, on_stop, on_settings, on_help, on_close_handoff=None) -> None:
         self._on_run = on_run
         self._on_stop = on_stop
+        self._on_close_handoff = on_close_handoff
         self.settings_button.on_click = on_settings
         self.help_button.on_click = on_help
 
