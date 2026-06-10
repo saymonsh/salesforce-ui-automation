@@ -231,38 +231,99 @@ def find_window_by_title(title: str) -> Optional[int]:
     return _visible_top_level(None, None, title)
 
 
-def reframe_as_owned(chrome_hwnd: Optional[int], host_hwnd: Optional[int],
-                     hide_cycle: bool = False) -> bool:
-    """Strip Chrome's frame and make it a frameless, OWNED tool-window popup of
-    ``host_hwnd`` — which is what removes its taskbar button. Shared by the early
-    driver-side suppression (kills the launch flash by doing this the instant the
-    window is found, not after the UI round-trip) and by the overlay. Best-effort.
+class _GUID(ctypes.Structure):
+    _fields_ = [
+        ("Data1", ctypes.c_ulong),
+        ("Data2", ctypes.c_ushort),
+        ("Data3", ctypes.c_ushort),
+        ("Data4", ctypes.c_ubyte * 8),
+    ]
 
-    ``hide_cycle``: a taskbar button that's already showing is only reliably
-    dropped across a hide→restyle→show cycle (a bare style change doesn't make the
-    taskbar re-evaluate). Hiding stalls a *loading* page, so the overlay must NOT
-    use it mid-run — but the driver-side call happens BEFORE navigation (page is
-    still ``data:,``), where a brief hide is safe and actually removes the button.
+
+_CLSID_TaskbarList = "{56FDF344-FD6D-11D0-958A-006097C9A090}"
+_IID_ITaskbarList = "{56FDF342-FD6D-11D0-958A-006097C9A090}"
+
+
+def delete_taskbar_button(hwnd: Optional[int]) -> None:
+    """Remove a window's taskbar button at runtime via the shell's ITaskbarList
+    (``DeleteTab``) — the documented API for exactly this. Unlike a hide→show
+    cycle it does NOT touch the window, so it can't stall a loading page and has
+    no pre-navigation timing dependency. Works cross-process. Best-effort.
+
+    COM-via-ctypes: CoCreateInstance gives an interface pointer whose first field
+    is the vtable; we call by vtable slot (IUnknown 0-2, then HrInit=3 … DeleteTab=5).
+    """
+    if _user32 is None or not hwnd:
+        return
+    ole32 = ctypes.windll.ole32
+    co_inited = False
+    try:
+        ole32.CLSIDFromString.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(_GUID)]
+        ole32.CLSIDFromString.restype = ctypes.c_long
+        ole32.CoCreateInstance.argtypes = [
+            ctypes.POINTER(_GUID), ctypes.c_void_p, wintypes.DWORD,
+            ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p),
+        ]
+        ole32.CoCreateInstance.restype = ctypes.c_long
+        ole32.CoInitialize.argtypes = [ctypes.c_void_p]
+        ole32.CoInitialize.restype = ctypes.c_long
+
+        hr = ole32.CoInitialize(None)
+        co_inited = hr in (0, 1)  # S_OK / S_FALSE — both need a matching uninit
+        clsid, iid = _GUID(), _GUID()
+        if ole32.CLSIDFromString(_CLSID_TaskbarList, ctypes.byref(clsid)) != 0:
+            return
+        if ole32.CLSIDFromString(_IID_ITaskbarList, ctypes.byref(iid)) != 0:
+            return
+        ptr = ctypes.c_void_p()
+        CLSCTX_INPROC_SERVER = 1
+        if ole32.CoCreateInstance(ctypes.byref(clsid), None, CLSCTX_INPROC_SERVER,
+                                  ctypes.byref(iid), ctypes.byref(ptr)) != 0 or not ptr.value:
+            return
+        vtable_addr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_void_p))[0]
+        vtable = ctypes.cast(ctypes.c_void_p(vtable_addr), ctypes.POINTER(ctypes.c_void_p))
+        _hrinit = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(vtable[3])
+        _deltab = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.HWND)(vtable[5])
+        _release = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(vtable[2])
+        _hrinit(ptr)
+        _deltab(ptr, hwnd)
+        _release(ptr)
+    except Exception:
+        pass
+    finally:
+        if co_inited:
+            try:
+                ole32.CoUninitialize()
+            except Exception:
+                pass
+
+
+def reframe_as_owned(chrome_hwnd: Optional[int], host_hwnd: Optional[int]) -> bool:
+    """Strip Chrome's frame and make it a frameless, OWNED tool-window popup of
+    ``host_hwnd``, then drop its taskbar button via the shell (``delete_taskbar_
+    button``). Shared by the early driver-side suppression (the instant the window
+    is found) and by the overlay. No hide/show — nothing can stall the page, and
+    there's no pre-navigation timing dependency. Best-effort.
     """
     if _user32 is None or not chrome_hwnd or not host_hwnd:
         return False
     try:
-        if hide_cycle:
-            _user32.ShowWindow(chrome_hwnd, SW_HIDE)
         style = _GetWindowLong(chrome_hwnd, GWL_STYLE)
         style &= ~(WS_CHILD | WS_OVERLAPPEDWINDOW | WS_CAPTION | WS_THICKFRAME
                    | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU)
         style |= WS_POPUP
         _SetWindowLong(chrome_hwnd, GWL_STYLE, style)
+        # Tool-window (clear APPWINDOW) so the shell won't re-add the button, owner
+        # for the embedded relationship, FRAMECHANGED to apply the new frame.
         ex = _GetWindowLong(chrome_hwnd, GWL_EXSTYLE)
         ex = (ex & ~WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW
         _SetWindowLong(chrome_hwnd, GWL_EXSTYLE, ex)
         _SetWindowLong(chrome_hwnd, GWLP_HWNDPARENT, host_hwnd)  # set owner
-        if hide_cycle:
-            _user32.ShowWindow(chrome_hwnd, SW_SHOWNA)  # reshow off-screen, no button
-        else:
-            _user32.SetWindowPos(chrome_hwnd, None, 0, 0, 0, 0,
-                                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED)
+        _user32.SetWindowPos(chrome_hwnd, None, 0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED)
+        # Remove the button that was already created when Chrome first showed the
+        # window (the style change alone doesn't make the taskbar re-evaluate).
+        delete_taskbar_button(chrome_hwnd)
         return True
     except Exception:
         return False

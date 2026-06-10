@@ -169,9 +169,9 @@ class DriverManager:
         # the taskbar button is gone almost immediately instead of ~1s later.
         host = find_window_by_title(APP_WINDOW_TITLE)
         if host:
-            # Pre-navigation (page is still data:,) — safe to do the hide→restyle→
-            # show cycle that actually drops the already-shown taskbar button.
-            reframe_as_owned(hwnd, host, hide_cycle=True)
+            # Reframe as an owned tool-window and drop the taskbar button via the
+            # shell (ITaskbarList::DeleteTab) — no hide, so no page-stall risk.
+            reframe_as_owned(hwnd, host)
         logger.debug(f"chrome window {hwnd} ready for embedding", stage="driver")
         try:
             self.on_browser_ready(hwnd)
