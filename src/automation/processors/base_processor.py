@@ -62,6 +62,8 @@ class BaseProcessor(ABC):
         self.driver_manager.launch_chromedriver()
 
         self.check_for_stop()
+        # Let the driver's off-screen window poll honour the Stop button (#6).
+        self.driver_manager.check_stop = lambda: self.is_stopped
         self.driver_manager.create_driver()
 
     def _cleanup_driver(self):

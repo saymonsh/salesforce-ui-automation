@@ -77,6 +77,8 @@ if _user32 is not None:
     _user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
     _user32.IsWindowVisible.restype = wintypes.BOOL
     _user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    _user32.IsWindow.restype = wintypes.BOOL
+    _user32.IsWindow.argtypes = [wintypes.HWND]
     _user32.IsIconic.restype = wintypes.BOOL
     _user32.IsIconic.argtypes = [wintypes.HWND]
     _user32.IsZoomed.restype = wintypes.BOOL
@@ -106,18 +108,6 @@ if _user32 is not None:
     _WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     _user32.EnumWindows.argtypes = [_WNDENUMPROC, wintypes.LPARAM]
     _user32.EnumWindows.restype = wintypes.BOOL
-
-
-def close_window(hwnd: Optional[int]) -> None:
-    """Politely close a window (WM_CLOSE) — used to shut the handoff Chrome from
-    the panel's close button after the operator finished the manual step.
-    Best-effort no-op if hwnd is gone or we're not on Windows."""
-    if _user32 is None or not hwnd:
-        return
-    try:
-        _user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
-    except Exception:
-        pass
 
 
 def set_process_dpi_aware() -> None:
@@ -150,6 +140,21 @@ class _PROCESSENTRY32W(ctypes.Structure):
         ("dwFlags", wintypes.DWORD),
         ("szExeFile", ctypes.c_wchar * 260),
     ]
+
+
+if _kernel32 is not None:
+    # Declare the snapshot handle as a real HANDLE (pointer-width). Without this
+    # ctypes defaults the return/args to 32-bit c_int, truncating the 64-bit
+    # handle — which breaks the _INVALID_HANDLE check and corrupts the handle
+    # passed on to Process32/CloseHandle (#8).
+    _kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    _kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    _kernel32.Process32FirstW.restype = wintypes.BOOL
+    _kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+    _kernel32.Process32NextW.restype = wintypes.BOOL
+    _kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+    _kernel32.CloseHandle.restype = wintypes.BOOL
+    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 
 
 def _child_chrome_pids(parent_pid: int) -> Set[int]:
@@ -386,11 +391,40 @@ class BrowserOverlay:
         self._thread: Optional[threading.Thread] = None
         self._running = False
         self._last: Optional[Tuple[int, int, int, int]] = None
-        self._hidden = False
+        # When the overlay must be out of the way (a dialog is up, host minimized)
+        # we PARK Chrome off-screen rather than SW_HIDE it — hiding mid-load stalls
+        # the page (#7). True while it's parked at _OFFSCREEN.
+        self._parked = False
+        # Identity of the window we attached to. HWNDs are recycled after a window
+        # dies, so we pin Chrome's owning PID and refuse to act on the handle once
+        # it's no longer a live window owned by THIS process (issue #19 review #4).
+        self._chrome_pid = window_pid(chrome_hwnd)
 
     @property
     def chrome_hwnd(self) -> int:
         return self._chrome
+
+    # -- identity guard -----------------------------------------------------
+    def _is_live(self) -> bool:
+        """True only if the tracked handle is still a real window owned by the
+        same process we attached to — so a recycled HWND (Chrome crashed, Windows
+        reused the number for another app's window) is never mistaken for ours."""
+        if _user32 is None or not self._chrome:
+            return False
+        try:
+            if not _user32.IsWindow(self._chrome):
+                return False
+            if self._chrome_pid is None:
+                return True  # couldn't capture a PID at attach — best-effort
+            return window_pid(self._chrome) == self._chrome_pid
+        except Exception:
+            return False
+
+    def verified_chrome_pid(self) -> Optional[int]:
+        """Chrome's PID, but ONLY if the window is still alive and still ours —
+        so a force-kill keyed off it can never tear down an unrelated process
+        tree behind a recycled handle. None otherwise (caller must not kill)."""
+        return self._chrome_pid if self._is_live() else None
 
     # -- lifecycle ----------------------------------------------------------
     def start(self) -> bool:
@@ -411,25 +445,6 @@ class BrowserOverlay:
         """Stop tracking. Leaves Chrome where it is (caller usually quits it)."""
         self._running = False
 
-    def release_standalone(self) -> None:
-        """Hand Chrome back as a normal, visible, standalone window — for the
-        TYPE 2 'action required' handoff where the operator finishes manually."""
-        self._running = False
-        if _user32 is None or not self._chrome:
-            return
-        try:
-            style = _GetWindowLong(self._chrome, GWL_STYLE)
-            style &= ~WS_POPUP
-            style |= WS_OVERLAPPEDWINDOW
-            _SetWindowLong(self._chrome, GWL_STYLE, style)
-            _SetWindowLong(self._chrome, GWLP_HWNDPARENT, 0)  # drop the owner
-            # Re-place it on the visible desktop with a normal frame, and show it.
-            _user32.SetWindowPos(self._chrome, HWND_TOP, 80, 60, 1200, 860,
-                                 SWP_FRAMECHANGED | SWP_NOACTIVATE)
-            _user32.ShowWindow(self._chrome, SW_SHOW)
-        except Exception:
-            pass
-
     # -- tracking -----------------------------------------------------------
     def _outer_rect(self):
         r = wintypes.RECT()
@@ -439,15 +454,25 @@ class BrowserOverlay:
     def _track(self) -> None:
         while self._running:
             try:
+                # Stop the instant the window is gone or its handle was recycled to
+                # another process — never move/hide/snap a stranger's window (#4).
+                if not self._is_live():
+                    self._running = False
+                    break
                 rect = self._rect_provider()
                 if rect is None:
-                    if not self._hidden:
-                        _user32.ShowWindow(self._chrome, SW_HIDE)
-                        self._hidden = True
+                    # Park off the visible desktop instead of hiding: SW_HIDE while
+                    # a page loads stalls it ("stuck loading"), which reframe_as_owned
+                    # avoids by design — the tracker must too (#7). Parking gives the
+                    # same effect (nothing covers the dialog) while Chrome keeps
+                    # painting. The bring-back below restores it from _OFFSCREEN.
+                    if not self._parked:
+                        _user32.SetWindowPos(self._chrome, HWND_TOP, _OFFSCREEN[0],
+                                             _OFFSCREEN[1], 0, 0,
+                                             SWP_NOSIZE | SWP_NOACTIVATE)
+                        self._parked = True
                 else:
-                    if self._hidden:
-                        _user32.ShowWindow(self._chrome, SW_SHOWNA)
-                        self._hidden = False
+                    self._parked = False
                     # Re-assert against Chrome's ACTUAL rect, not just the last
                     # target — so if anything resizes/maximizes Chrome (e.g. a
                     # maximize_window call or a fullscreen request) it snaps back

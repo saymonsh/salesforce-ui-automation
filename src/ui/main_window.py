@@ -13,7 +13,6 @@ from src.automation.win_window import (
     find_window_by_title,
     host_metrics,
     set_process_dpi_aware,
-    window_pid,
 )
 from src.core.constants import APP_WINDOW_TITLE
 from src.core.config import config_instance as parm
@@ -108,7 +107,6 @@ class MainView:
         # down at run end. _overlay_host_hwnd caches our own window handle.
         self._overlay = None
         self._overlay_host_hwnd = None
-        self._overlay_suppressed_flag = False
         # True between a TYPE 2 'action required' finish and the operator closing
         # the browser from the panel — Chrome stays embedded (chromedriver is gone
         # but the window lives) so the manual step is finished inside the app.
@@ -123,13 +121,12 @@ class MainView:
 
     def _build_page(self) -> None:
         self.page.title = APP_WINDOW_TITLE
-        # Restore size (used when the user un-maximizes); the app opens maximized.
-        self.page.window.width = 600
-        self.page.window.height = 712
-        self.page.window.min_width = 540
-        self.page.window.min_height = 640
-        self.page.window.resizable = True
-        self.page.window.maximized = True  # open full-screen by default
+        # The app runs locked to full-screen: not resizable and always maximized,
+        # so the embedded Chrome panel can never be shrunk below Lightning's
+        # desktop breakpoint. There is no un-maximize path in the UI (no maximize
+        # button, no drag handle) — only minimize and close.
+        self.page.window.resizable = False
+        self.page.window.maximized = True
         # Hide the native Windows title bar — we build our own controls into the
         # glass panel. Resize borders are kept (not frameless).
         self.page.window.title_bar_hidden = True
@@ -151,13 +148,16 @@ class MainView:
             self._kill_browser_on_close()
 
     def _kill_browser_on_close(self) -> None:
-        """On app close (X / Alt+F4), make sure the embedded Chrome doesn't survive
-        as a stray taskbar window: an owned window can outlive a cross-process
-        owner under detach=True. Kill the tracked browser's process tree and any
-        chromedriver. Fast (no process enumeration) and best-effort; the startup
-        sweep is the backstop for anything missed."""
+        """On app close (X / Alt+F4), make sure an embedded handoff Chrome doesn't
+        survive as a stray window. Kill the tracked browser's process tree and any
+        chromedriver. Fast (no process enumeration) and best-effort.
+
+        The PID is taken from the overlay's identity guard (verified_chrome_pid),
+        which returns a value ONLY while the window is still alive and still owned
+        by the process we attached to — so a recycled HWND can never make us
+        force-kill an unrelated process tree (issue #19 review #4)."""
         try:
-            pid = window_pid(self._overlay.chrome_hwnd) if self._overlay else None
+            pid = self._overlay.verified_chrome_pid() if self._overlay else None
             if pid:
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
                                capture_output=True, check=False)
@@ -238,10 +238,6 @@ class MainView:
         self.win_min = ft.IconButton(
             ft.Icons.REMOVE, icon_size=18, icon_color=Color.TEXT_SECONDARY,
             tooltip="מזער", on_click=self._win_minimize,
-        )
-        self.win_max = ft.IconButton(
-            ft.Icons.CROP_SQUARE_ROUNDED, icon_size=15, icon_color=Color.TEXT_SECONDARY,
-            tooltip="הגדל / שחזר", on_click=self._win_maximize,
         )
         self.win_close = ft.IconButton(
             ft.Icons.CLOSE_ROUNDED, icon_size=18, icon_color=Color.TEXT_SECONDARY,
@@ -330,10 +326,6 @@ class MainView:
     # --------------------------------------------------------------- window controls
     def _win_minimize(self, e):
         self.page.window.minimized = True
-        self._safe_update()
-
-    def _win_maximize(self, e):
-        self.page.window.maximized = not self.page.window.maximized
         self._safe_update()
 
     async def _win_close(self, e):
@@ -755,6 +747,25 @@ class MainView:
         interactive), and reveal a close button to shut the browser when done.
         chromedriver is already gone; only the window lives on."""
         if self._overlay is None:
+            # The embed never attached — Chrome's window wasn't found within the
+            # poll window, or the overlay failed to start. Chrome is parked far
+            # off-screen and invisible, so the operator can't see or finish the
+            # manual TYPE 2 step here. Don't pretend it's usable (that would also
+            # leave a logged-in Chrome alive as an invisible orphan on app close):
+            # drop the 'action required' state, tell the operator plainly, and
+            # close the driver so nothing survives (#3).
+            self._browser_handoff = False
+            self._action_required = False
+            self.set_status("הדפדפן לא היה זמין — התהליך נסגר", level="error")
+            self.show_alert(
+                "הדפדפן לא זמין",
+                "לא ניתן היה להציג את הדפדפן המוטמע, ולכן לא ניתן להשלים את הצעד "
+                "הידני. התהליך נסגר — הפעל מחדש כדי לנסות שוב.",
+                "error",
+            )
+            if self._on_close_handoff is not None:
+                self._on_close_handoff()  # controller: driver.quit() → Chrome + chromedriver close
+            self._safe_update()
             return
         self._browser_handoff = True
         if self.browser_close_btn is not None:
@@ -800,7 +811,7 @@ class MainView:
         """Target screen rectangle (physical px) for the overlay, or None to hide
         it (idle, a covering dialog is open, or the window is minimized). Computed
         from the live window geometry and the layout insets (see _OVL_*)."""
-        if (not self._running and not self._browser_handoff) or self._overlay_suppressed_flag:
+        if (not self._running and not self._browser_handoff) or self._any_dialog_open():
             return None
         host = self._overlay_host_hwnd
         if not host:
@@ -818,10 +829,21 @@ class MainView:
             return None
         return (x, y, w, h)
 
-    def set_overlay_suppressed(self, suppressed: bool) -> None:
-        """Temporarily hide the overlay (e.g. while a modal dialog covers the
-        panel — the owned window can't be clipped, so it would paint over it)."""
-        self._overlay_suppressed_flag = suppressed
+    def _any_dialog_open(self) -> bool:
+        """True while any Flet dialog (settings, grid, feed, alert, help) is on
+        screen. The owned Chrome overlay is a top-level OS window that paints OVER
+        in-app dialogs — it can't be clipped — so while a dialog is up the overlay
+        must hide, or it masks the dialog and the app looks frozen behind it (#5).
+
+        Read straight from Flet's live dialog stack (page._dialogs) rather than
+        bookkeeping every open/close site: the tracker polls this each tick, so it
+        is self-healing — a dialog closing un-hides the overlay on the next tick
+        with no chance of a missed un-suppress leaving Chrome stuck hidden."""
+        try:
+            dialogs = getattr(self.page, "_dialogs", None)
+            return bool(dialogs is not None and dialogs.controls)
+        except Exception:
+            return False
 
     def reset_browser(self) -> None:
         """Return the panel body to its 'waiting' placeholder."""
@@ -868,35 +890,24 @@ class MainView:
                 row.alignment = ft.MainAxisAlignment.CENTER
 
     def _build_chrome(self):
-        """A thin window-chrome strip ON THE BACKGROUND (above the panel):
-        a centered drag handle + window controls at the top-right. The native
-        title bar is hidden."""
-        # Subtle, translucent window controls — top-right (Windows convention).
+        """A thin window-chrome strip ON THE BACKGROUND (above the panel): the
+        window controls only (minimize + close). The app runs maximized and is
+        not movable or resizable, so there is no drag handle and no maximize/
+        restore control. The native title bar is hidden."""
+        # Subtle, translucent window controls — top-left in RTL (the leading edge).
         controls = ft.Container(
             bgcolor=ft.Colors.with_opacity(0.45, "#ffffff"),
             border_radius=Radius.PILL,
             padding=ft.padding.symmetric(horizontal=Space.XS),
-            content=ft.Row(spacing=0, tight=True, controls=[self.win_min, self.win_max, self.win_close]),
+            content=ft.Row(spacing=0, tight=True, controls=[self.win_min, self.win_close]),
         )
-        # A clearly-marked drag handle in the centre.
-        drag_handle = ft.Container(
-            bgcolor=ft.Colors.with_opacity(0.20, "#ffffff"),
-            border_radius=Radius.PILL,
-            padding=ft.padding.symmetric(horizontal=Space.LG, vertical=2),
-            tooltip="גרור להזזת החלון",
-            content=ft.Icon(ft.Icons.DRAG_HANDLE_ROUNDED, size=18,
-                            color=ft.Colors.with_opacity(0.65, "#000000")),
-        )
-        return ft.WindowDragArea(
-            maximizable=True,
-            content=ft.Container(
-                # proper distance from the top window border
-                padding=ft.padding.only(top=Space.MD, left=Space.LG, right=Space.LG, bottom=Space.SM),
-                content=ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[drag_handle, controls],  # RTL: drag → right corner, controls → left
-                ),
+        return ft.Container(
+            # proper distance from the top window border
+            padding=ft.padding.only(top=Space.MD, left=Space.LG, right=Space.LG, bottom=Space.SM),
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.END,  # RTL: controls → top-left corner
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[controls],
             ),
         )
 

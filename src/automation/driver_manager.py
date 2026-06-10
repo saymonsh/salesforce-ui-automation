@@ -12,30 +12,8 @@ from src.automation.win_window import (
 from src.core.config import config_instance as config
 from src.core.constants import APP_WINDOW_TITLE
 from src.core.logger import logger
+from src.core.utils import smart_sleep
 
-
-def cleanup_stray_automation_browsers():
-    """Kill leftover automation Chrome/chromedriver from a previous session that
-    didn't shut down cleanly — e.g. the app was X-ed mid-run, or it crashed. With
-    detach=True the embedded Chrome is owned by the app window (so it closes with
-    it), but the chromedriver subprocess can leak and keep port 9515 busy, and a
-    handoff browser may survive. Targets ONLY automation processes (chromedriver,
-    and chrome.exe launched with --enable-automation) — never the operator's own
-    Chrome. Best-effort; called once at startup."""
-    try:
-        subprocess.run(["taskkill", "/F", "/IM", "chromedriver.exe"],
-                       capture_output=True, check=False)
-    except Exception:
-        pass
-    try:
-        subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
-             "Where-Object { $_.CommandLine -match '--enable-automation' } | "
-             "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"],
-            capture_output=True, check=False)
-    except Exception:
-        pass
 
 class DriverManager:
     def __init__(self):
@@ -48,6 +26,10 @@ class DriverManager:
         # the desktop before the UI grabs it) and hands over the handle.
         self.on_browser_ready = None
         self.chrome_hwnd = None
+        # Cooperative stop hook (set by the processor before create_driver). Lets
+        # the off-screen window poll below honour the Stop button instead of
+        # blocking on a bare sleep — None means "no check" (behaves as before).
+        self.check_stop = None
 
     @staticmethod
     def setup_proxy():
@@ -158,7 +140,9 @@ class DriverManager:
             hwnd = find_chrome_window(pid)
             if hwnd:
                 break
-            sleep(0.1)
+            # Cooperative wait: honours the Stop button mid-poll (raises
+            # StopRequestedException), unlike a bare sleep — see CLAUDE.md (#6).
+            smart_sleep(0.1, self.check_stop, interval=0.1)
         self.chrome_hwnd = hwnd
         if not hwnd:
             logger.debug("chrome window not found — no embedded panel", stage="driver")
@@ -185,12 +169,17 @@ class DriverManager:
         This is also the clean shutdown for the TYPE 2 handoff once the operator
         is done (the controller calls it on the driver it kept alive)."""
         if self.driver:
-            try:
-                self.driver.quit()
-            except Exception:
-                pass
-            finally:
-                self.driver = None
+            # driver.quit() can block indefinitely if chromedriver is wedged, and
+            # this runs on the UI thread (handoff "done" / starting a new run) — a
+            # hang would freeze the app with no feedback (#8). Bound it with a
+            # watchdog: give quit() a few seconds, then fall through to force-
+            # terminate chromedriver below (which also kills Chrome and frees the
+            # port) whether or not quit() returned.
+            drv = self.driver
+            quitter = threading.Thread(target=self._quit_driver_quiet, args=(drv,), daemon=True)
+            quitter.start()
+            quitter.join(timeout=5)
+            self.driver = None
 
         if self.chromedriver_process:
             try:
@@ -201,3 +190,12 @@ class DriverManager:
                 self.chromedriver_process = None
         self.chrome_hwnd = None
         logger.debug("chromedriver terminated", stage="driver")
+
+    @staticmethod
+    def _quit_driver_quiet(driver):
+        """driver.quit() that swallows everything — run on a watchdog thread so a
+        wedged chromedriver can't block the caller (see close_driver, #8)."""
+        try:
+            driver.quit()
+        except Exception:
+            pass

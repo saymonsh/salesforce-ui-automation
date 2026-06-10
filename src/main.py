@@ -45,11 +45,6 @@ class _FeedStream:
 
 
 def build_app(page: ft.Page) -> None:
-    # Sweep up any automation Chrome/chromedriver left over from a previous session
-    # that didn't shut down cleanly (app X-ed mid-run, or a crash) — frees port
-    # 9515 and prevents orphan browsers piling up (issue #19).
-    from src.automation.driver_manager import cleanup_stray_automation_browsers
-    cleanup_stray_automation_browsers()
     view = MainView(page)
     Controller(page, view)
     # Route the running automation's terminal output into the activity feed.
@@ -57,7 +52,47 @@ def build_app(page: ft.Page) -> None:
     sys.stderr = _FeedStream(page, view, sys.stderr, is_err=True)
 
 
+_INSTANCE_MUTEX = None  # held for the process lifetime so the single-instance lock stays owned
+
+
+def _acquire_single_instance_lock() -> bool:
+    """Named-mutex single-instance guard (Windows). Returns True if THIS process is
+    the sole instance (or the check is unavailable — fail open), False if another
+    instance already holds the lock. The handle is kept in a module global so the
+    lock stays owned until the process exits.
+
+    This replaces the old startup sweep that force-killed every chromedriver and
+    automation Chrome on the machine. The real risk it guarded against was a second
+    accidental launch colliding with a live run over port 9515; the mutex prevents
+    that outright without touching any unrelated process (issue #19 review)."""
+    global _INSTANCE_MUTEX
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        ERROR_ALREADY_EXISTS = 183
+        handle = kernel32.CreateMutexW(None, False, "SalesforceUIAutomation.SingleInstance")
+        if not handle:
+            return True  # couldn't create the lock — don't block the app
+        if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+            return False
+        _INSTANCE_MUTEX = handle  # keep the handle alive for the whole run
+        return True
+    except Exception:
+        return True  # any failure → fail open, never block startup
+
+
 def main() -> None:
+    if not _acquire_single_instance_lock():
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            "האפליקציה כבר פועלת.\nסגור את החלון הקיים לפני הפעלה מחדש.",
+            "Salesforce Automation",
+            0x40,  # MB_ICONINFORMATION
+        )
+        sys.exit(0)
     try:
         # Absolute path so assets resolve regardless of the launch cwd.
         assets_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
