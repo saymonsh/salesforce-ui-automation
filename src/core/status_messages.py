@@ -69,11 +69,11 @@ class Status:
 
     @staticmethod
     def t2_done(total: int) -> str:
-        # The run ends in the 'action required' state with the Chrome window left
-        # open (detach_driver) so the operator can finish the manual save. Remind
-        # them to close it afterwards — that window holds a logged-in Salesforce
-        # session that otherwise sits open and unattended. The critical 'הבא'
-        # instruction stays first so an ellipsised one-liner still shows it.
+        # The run ends in the 'action required' state with Chrome left open
+        # (embedded in the panel) so the operator can finish the manual save, then
+        # close it via the panel's "done" button. Remind them — that browser holds
+        # a logged-in Salesforce session. The critical 'הבא' instruction stays
+        # first so an ellipsised one-liner still shows it.
         return f"נוספו {_iso(total)} מועמדים — לחץ 'הבא' ב-Salesforce לשמירה, וסגור את החלון בסיום"
 
     # --- TYPE 3 — נוכחות (unit is a date/session, not a row) ----------------

@@ -35,6 +35,13 @@ class WorkerSignals:
     log
         str: formatted debug line for the activity feed/console
         str: severity ("DEBUG" / "INFO" / "WARNING" / "ERROR")
+    browser_ready
+        int: the OS window handle of the live Chrome window (issue #19), emitted
+        once it's up so the UI can embed it as an owned overlay in the panel.
+    browser_detached
+        (no args) the run ended in an 'action required' state and Chrome was left
+        open (chromedriver gone, window alive); the UI keeps it embedded so the
+        operator finishes the manual step in the panel, then closes it from there.
 
     The status and log channels are deliberately separate (issue #12): status
     is clean, high-level, Hebrew; log is technical, English, verbose.
@@ -45,6 +52,8 @@ class WorkerSignals:
         self.item_processed = _Emitter()
         self.status = _Emitter()
         self.log = _Emitter()
+        self.browser_ready = _Emitter()
+        self.browser_detached = _Emitter()
 
 
 class AutomationWorker:
@@ -72,6 +81,10 @@ class AutomationWorker:
         # duration of this run, and honour the configured verbosity.
         logger.set_verbose(getattr(parm, "DEBUG_LOGGING", False))
         logger.bind(lambda line, level: self.signals.log.emit(line, level))
+        # Report Chrome's window to the UI once it's up (issue #19), so the UI can
+        # embed the REAL browser as an owned overlay over the panel — native
+        # quality, fully interactive (this replaced the CDP screencast mirror).
+        self.driver_manager.on_browser_ready = lambda hwnd: self.signals.browser_ready.emit(hwnd)
         try:
             self.processor = self.processor_class(signals=self.signals, driver_manager=self.driver_manager)
 
@@ -105,7 +118,12 @@ class AutomationWorker:
                 and getattr(self.processor, "keep_browser_open", False)
             )
             if keep_open:
-                self.driver_manager.detach_driver()
+                # Leave Chrome AND chromedriver fully alive so the operator can
+                # finish the manual step in the still-embedded browser. We do NOT
+                # close anything here: the controller captures this driver and
+                # closes it cleanly (driver.quit) when the operator clicks "done"
+                # or starts a new run. (No detach hack, no orphaned browser.)
+                self.signals.browser_detached.emit()
             else:
                 self.driver_manager.close_driver()
             logger.unbind()

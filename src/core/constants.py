@@ -1,5 +1,9 @@
 import os
 
+# The app's OS window title. Shared so the automation layer can locate the host
+# window (to embed Chrome as an owned overlay, issue #19) without importing the UI.
+APP_WINDOW_TITLE = "כיוון — Salesforce Automation"
+
 # Base Paths
 # src/core/constants.py -> ../../ -> project root
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))

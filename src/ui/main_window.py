@@ -1,11 +1,20 @@
 import asyncio
+import base64
 import os
 import queue
+import subprocess
 import threading
 from typing import Callable, Optional
 
 import flet as ft
 
+from src.automation.win_window import (
+    BrowserOverlay,
+    find_window_by_title,
+    host_metrics,
+    set_process_dpi_aware,
+)
+from src.core.constants import APP_WINDOW_TITLE
 from src.core.config import config_instance as parm
 from src.core.status_messages import Status
 from src.core.utils import ltr_isolate
@@ -36,6 +45,24 @@ _PANEL_SHADOW = ft.BoxShadow(
 )
 
 _PANEL_WIDTH = 440
+
+# Insets (in Flet LOGICAL px) of the live-browser rectangle (browser_body) inside
+# the maximized window, used to place the owned-overlay Chrome (issue #19). These
+# MIRROR the run-mode layout — chrome strip height + the browser glass panel's
+# margin/padding/titlebar on the left, the console column on the right — and are
+# tuned by eye against the real window (the overlay shows the white browser_body
+# wherever they're off). LEFT/TOP measured from the client top-left; RIGHT/BOTTOM
+# are insets from the right/bottom client edges. Scaled by the window DPI at use.
+_OVL_LEFT = 36
+_OVL_TOP = 129
+_OVL_RIGHT = 470
+_OVL_BOTTOM = 44
+# 1×1 transparent PNG — the live-browser image's initial/blank source (Flet's
+# ft.Image needs a valid src; this never actually shows because the panel keeps
+# the placeholder mounted until the first real frame arrives).
+_BLANK_IMG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
 _RING_TRACK = ft.Colors.with_opacity(0.14, "#2b2b2b")
 _LINEAR_TRACK = ft.Colors.with_opacity(0.16, "#2b2b2b")
 _NEUTRAL_RING = "#c4c4c4"  # calm full ring for the 'action required' state (no color clash)
@@ -66,6 +93,7 @@ class MainView:
         self._action_required = False
         self._on_run: Optional[Callable] = None
         self._on_stop: Optional[Callable] = None
+        self._on_close_handoff: Optional[Callable] = None
         # Terminal output arrives from worker/chromedriver threads; queue it and
         # drain on the UI loop in batches (decoupled = no loop flooding/freeze).
         # Each item is (text, level) where level is a debug-channel severity.
@@ -73,20 +101,32 @@ class MainView:
         # Plain-text mirror of the rendered feed lines — backs copy-all / save /
         # clear so they don't have to read back ft.Text controls. Capped alongside.
         self._feed_lines: list[str] = []
+        # Embedded live browser (issue #19, owned-overlay): the REAL Chrome window
+        # is pinned over the panel rectangle as an owned overlay. The overlay is
+        # created when the worker reports Chrome is up (attach_browser) and torn
+        # down at run end. _overlay_host_hwnd caches our own window handle.
+        self._overlay = None
+        self._overlay_host_hwnd = None
+        # True between a TYPE 2 'action required' finish and the operator closing
+        # the browser from the panel — Chrome stays embedded (chromedriver is gone
+        # but the window lives) so the manual step is finished inside the app.
+        self._browser_handoff = False
+        self.browser_close_btn = None  # built with the browser panel
+        # Per-monitor-DPI-aware so our Win32 geometry matches Flutter's pixels.
+        set_process_dpi_aware()
 
         self._build_page()
         self._build_controls()
         self._render()
 
     def _build_page(self) -> None:
-        self.page.title = "כיוון — Salesforce Automation"
-        # Restore size (used when the user un-maximizes); the app opens maximized.
-        self.page.window.width = 600
-        self.page.window.height = 712
-        self.page.window.min_width = 540
-        self.page.window.min_height = 640
-        self.page.window.resizable = True
-        self.page.window.maximized = True  # open full-screen by default
+        self.page.title = APP_WINDOW_TITLE
+        # The app runs locked to full-screen: not resizable and always maximized,
+        # so the embedded Chrome panel can never be shrunk below Lightning's
+        # desktop breakpoint. There is no un-maximize path in the UI (no maximize
+        # button, no drag handle) — only minimize and close.
+        self.page.window.resizable = False
+        self.page.window.maximized = True
         # Hide the native Windows title bar — we build our own controls into the
         # glass panel. Resize borders are kept (not frameless).
         self.page.window.title_bar_hidden = True
@@ -105,6 +145,29 @@ class MainView:
     def _on_window_event(self, e) -> None:
         if getattr(e, "type", None) == ft.WindowEventType.CLOSE:
             self.save_draft()
+            self._kill_browser_on_close()
+
+    def _kill_browser_on_close(self) -> None:
+        """On app close (X / Alt+F4), make sure an embedded handoff Chrome doesn't
+        survive as a stray window. Kill the tracked browser's process tree and any
+        chromedriver. Fast (no process enumeration) and best-effort.
+
+        The PID is taken from the overlay's identity guard (verified_chrome_pid),
+        which returns a value ONLY while the window is still alive and still owned
+        by the process we attached to — so a recycled HWND can never make us
+        force-kill an unrelated process tree (issue #19 review #4)."""
+        try:
+            pid = self._overlay.verified_chrome_pid() if self._overlay else None
+            if pid:
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                               capture_output=True, check=False)
+        except Exception:
+            pass
+        try:
+            subprocess.run(["taskkill", "/F", "/IM", "chromedriver.exe"],
+                           capture_output=True, check=False)
+        except Exception:
+            pass
 
     def _build_controls(self) -> None:
         # File picker is still needed for importing an Excel file into the grid
@@ -176,10 +239,6 @@ class MainView:
             ft.Icons.REMOVE, icon_size=18, icon_color=Color.TEXT_SECONDARY,
             tooltip="מזער", on_click=self._win_minimize,
         )
-        self.win_max = ft.IconButton(
-            ft.Icons.CROP_SQUARE_ROUNDED, icon_size=15, icon_color=Color.TEXT_SECONDARY,
-            tooltip="הגדל / שחזר", on_click=self._win_maximize,
-        )
         self.win_close = ft.IconButton(
             ft.Icons.CLOSE_ROUNDED, icon_size=18, icon_color=Color.TEXT_SECONDARY,
             tooltip="סגור", on_click=self._win_close,
@@ -211,6 +270,28 @@ class MainView:
             ),
         )
         self.logs_holder = ft.Container(expand=True, content=self.logs_empty_view)
+
+        # --- Embedded live browser (issue #19, owned-overlay) -------------------
+        # The white panel area below; the REAL Chrome window is pinned over it as
+        # an owned overlay (win_window.BrowserOverlay) while a run is in flight, so
+        # this placeholder is only visible in the brief moment before Chrome shows.
+        self.browser_placeholder = ft.Container(
+            alignment=ft.Alignment.CENTER, expand=True,
+            content=ft.Column(
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER, spacing=Space.MD,
+                controls=[
+                    ft.ProgressRing(width=34, height=34, stroke_width=4, color=Color.BRAND),
+                    ft.Text("ממתין לדפדפן…", color=Color.TEXT_SECONDARY, weight=ft.FontWeight.W_600),
+                    ft.Text("הדפדפן יופיע כאן ברגע שהריצה תתחיל",
+                            color=Color.TEXT_TERTIARY, size=Type.CAPTION[0]),
+                ],
+            ),
+        )
+        self.browser_body = ft.Container(
+            expand=True, bgcolor="#ffffff", border_radius=Radius.MD,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS, content=self.browser_placeholder,
+        )
 
         # --- Manual-entry grid (issue #16) --------------------------------------
         self.data_grid = DataGridView(
@@ -247,11 +328,13 @@ class MainView:
         self.page.window.minimized = True
         self._safe_update()
 
-    def _win_maximize(self, e):
-        self.page.window.maximized = not self.page.window.maximized
-        self._safe_update()
-
     async def _win_close(self, e):
+        # The app's custom title-bar X. This does NOT fire the OS-level CLOSE
+        # window event, so kill the embedded browser here too (issue #19) before
+        # closing — otherwise the owned Chrome can outlive the app as a stray
+        # taskbar window under detach=True.
+        self.save_draft()
+        self._kill_browser_on_close()
         # window.close() is a coroutine in Flet 0.84 — must be awaited.
         await self.page.window.close()
 
@@ -580,40 +663,258 @@ class MainView:
             ),
         )
 
+    # ------------------------------------------------------------ browser preview
+    def _build_browser_panel(self) -> ft.Container:
+        """The embedded live-browser panel (issue #19).
+
+        Same glass treatment as the console panel, with a slim title bar carrying
+        a 'live' indicator and the mirrored Chrome image below. Built hidden; it
+        is revealed beside the console only while a run is in flight (see
+        _apply_run_layout), filling the empty background space the console leaves.
+        """
+        # The bottom margin is an optical correction: the LIVE label is all-caps,
+        # so its glyphs sit in the upper part of the text box (the descender space
+        # below goes unused) — a box-centred dot looks low. Nudging it up ~1px
+        # centres it on the letters themselves.
+        live_dot = ft.Container(width=9, height=9, border_radius=Radius.PILL, bgcolor=Color.BRAND,
+                                margin=ft.margin.only(bottom=2))
+        # Revealed only during a TYPE 2 'action required' handoff — closes the
+        # embedded browser once the operator finished the manual step. Filled in
+        # the brand color so the one next action is unmissable.
+        self.browser_close_btn = ft.FilledButton(
+            "סיימתי — סגור דפדפן", icon=ft.Icons.CHECK_ROUNDED, visible=False,
+            style=ft.ButtonStyle(
+                bgcolor=Color.BRAND, color="#ffffff",
+                padding=ft.padding.symmetric(horizontal=Space.LG, vertical=Space.SM),
+            ),
+            on_click=self._close_handoff_browser,
+        )
+        # Keep the dot + LIVE label in their own tight group so the dot centres
+        # against the label height alone — not the taller 'close browser' button,
+        # which would otherwise stretch the row and drop the dot below the text.
+        live_group = ft.Row(
+            spacing=Space.XS, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                live_dot,
+                ft.Text("LIVE", size=Type.CAPTION[0], weight=ft.FontWeight.W_700, color=Color.BRAND),
+            ],
+        )
+        titlebar = ft.Row(
+            spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Icon(ft.Icons.PUBLIC_ROUNDED, size=18, color=Color.TEXT_SECONDARY),
+                ft.Text("דפדפן חי", size=Type.TITLE[0], weight=ft.FontWeight.W_700, color=Color.TEXT_PRIMARY),
+                ft.Container(expand=True),
+                self.browser_close_btn,
+                live_group,
+            ],
+        )
+        return ft.Container(
+            visible=False, expand=True,
+            margin=ft.margin.only(top=Space.XS, bottom=Space.XXL, left=Space.LG),
+            bgcolor=_GLASS_PANEL, border=ft.border.all(1, ft.Colors.with_opacity(0.55, "#ffffff")),
+            border_radius=24, shadow=_PANEL_SHADOW, padding=Space.XL,
+            content=ft.Column(
+                spacing=Space.MD, expand=True,
+                controls=[
+                    titlebar,
+                    ft.Divider(color=ft.Colors.with_opacity(0.5, Color.BORDER), height=1),
+                    self.browser_body,
+                ],
+            ),
+        )
+
+    # ------------------------------------------------------ embedded browser overlay
+    def attach_browser(self, hwnd: int) -> None:
+        """Embed the live Chrome window (its OS handle) as an owned overlay pinned
+        over the browser panel (issue #19). Called once the worker reports Chrome
+        is up. Best-effort: if the host window or the embed fails, the run just
+        proceeds without the live panel."""
+        if not hwnd:
+            return
+        self._stop_browser_overlay()  # guard against a stale overlay
+        host = find_window_by_title(self.page.title)
+        if not host:
+            return
+        self._overlay_host_hwnd = host
+        overlay = BrowserOverlay(hwnd, host, self._browser_rect_provider)
+        if overlay.start():
+            self._overlay = overlay
+
+    def enter_browser_handoff(self) -> None:
+        """TYPE 2 'action required' finish: keep Chrome EMBEDDED in the panel so
+        the operator finishes the manual step right here (the overlay is fully
+        interactive), and reveal a close button to shut the browser when done.
+        chromedriver is already gone; only the window lives on."""
+        if self._overlay is None:
+            # The embed never attached — Chrome's window wasn't found within the
+            # poll window, or the overlay failed to start. Chrome is parked far
+            # off-screen and invisible, so the operator can't see or finish the
+            # manual TYPE 2 step here. Don't pretend it's usable (that would also
+            # leave a logged-in Chrome alive as an invisible orphan on app close):
+            # drop the 'action required' state, tell the operator plainly, and
+            # close the driver so nothing survives (#3).
+            self._browser_handoff = False
+            self._action_required = False
+            self.set_status("הדפדפן לא היה זמין — התהליך נסגר", level="error")
+            self.show_alert(
+                "הדפדפן לא זמין",
+                "לא ניתן היה להציג את הדפדפן המוטמע, ולכן לא ניתן להשלים את הצעד "
+                "הידני. התהליך נסגר — הפעל מחדש כדי לנסות שוב.",
+                "error",
+            )
+            if self._on_close_handoff is not None:
+                self._on_close_handoff()  # controller: driver.quit() → Chrome + chromedriver close
+            self._safe_update()
+            return
+        self._browser_handoff = True
+        if self.browser_close_btn is not None:
+            self.browser_close_btn.visible = True
+        self._safe_update()
+
+    def _close_handoff_browser(self, _e=None) -> None:
+        """Panel close button: shut the handoff Chrome, fold the panel away, and
+        return the main action button to its idle 'waiting' state."""
+        overlay, self._overlay = self._overlay, None
+        self._browser_handoff = False
+        if self.browser_close_btn is not None:
+            self.browser_close_btn.visible = False
+        if overlay is not None:
+            overlay.stop()  # stop tracking; the driver close shuts the window
+        if self._on_close_handoff is not None:
+            self._on_close_handoff()  # controller: driver.quit() → Chrome closes cleanly
+        # The whole operation is over → return the WHOLE screen to its clean idle
+        # state, not just the button: drop the 'action required' status text, the
+        # warning glyph, the amber progress bar and the counter — a fresh 'ready'
+        # screen. (Mirrors the idle reset in the process-type switch handler.)
+        self._action_required = False
+        label = _TYPE_META.get(self._type_value, ("", None))[0]
+        self.status_text.value = f"מצב: {label}" if label else "מוכן"
+        self.status_text.color = Color.TEXT_SECONDARY
+        self.hero_value.value, self.hero_value.color = "מוכן", Color.TEXT_PRIMARY
+        self.hero_icon.visible = False
+        self.progress_ring.color = self.linear.color = Color.BRAND
+        self.progress_ring.value = self.linear.value = 0
+        self.counter_text.value = ""
+        self.status_dot.bgcolor = Color.TEXT_TERTIARY
+        # set_running(False) re-renders the button to the idle ▶, folds the panel,
+        # and unlocks edits.
+        self.set_running(False)
+
+    def _stop_browser_overlay(self) -> None:
+        """Stop tracking the overlay (Chrome is about to be closed by the driver)."""
+        if self._overlay is not None:
+            self._overlay.stop()
+            self._overlay = None
+
+    def _browser_rect_provider(self):
+        """Target screen rectangle (physical px) for the overlay, or None to hide
+        it (idle, a covering dialog is open, or the window is minimized). Computed
+        from the live window geometry and the layout insets (see _OVL_*)."""
+        if (not self._running and not self._browser_handoff) or self._any_dialog_open():
+            return None
+        host = self._overlay_host_hwnd
+        if not host:
+            return None
+        m = host_metrics(host)
+        if m is None:
+            return None
+        ox, oy, cw, ch, s = m
+        x = ox + int(_OVL_LEFT * s)
+        y = oy + int(_OVL_TOP * s)
+        right = ox + cw - int(_OVL_RIGHT * s)
+        bottom = oy + ch - int(_OVL_BOTTOM * s)
+        w, h = right - x, bottom - y
+        if w <= 0 or h <= 0:
+            return None
+        return (x, y, w, h)
+
+    def _any_dialog_open(self) -> bool:
+        """True while any Flet dialog (settings, grid, feed, alert, help) is on
+        screen. The owned Chrome overlay is a top-level OS window that paints OVER
+        in-app dialogs — it can't be clipped — so while a dialog is up the overlay
+        must hide, or it masks the dialog and the app looks frozen behind it (#5).
+
+        Read straight from Flet's live dialog stack (page._dialogs) rather than
+        bookkeeping every open/close site: the tracker polls this each tick, so it
+        is self-healing — a dialog closing un-hides the overlay on the next tick
+        with no chance of a missed un-suppress leaving Chrome stuck hidden."""
+        try:
+            dialogs = getattr(self.page, "_dialogs", None)
+            return bool(dialogs is not None and dialogs.controls)
+        except Exception:
+            return False
+
+    def reset_browser(self) -> None:
+        """Return the panel body to its 'waiting' placeholder."""
+        self.browser_body.content = self.browser_placeholder
+
+    def _apply_run_layout(self, running: bool) -> None:
+        """Show/hide the live-browser panel beside the console (issue #19).
+
+        While running, the console panel keeps its fixed width on the RTL leading
+        (right) side and the browser panel fills the remaining space to its left
+        (the real Chrome window is pinned over it as an owned overlay); idle, the
+        console returns to the centre and the overlay is torn down."""
+        row = getattr(self, "_console_row", None)
+        if running:
+            # A new run started while a handoff browser was still embedded: fold it
+            # away. The controller already closed the handoff driver (see
+            # on_run_click → close_handoff), so here we only stop tracking the old
+            # overlay; the new run brings its own Chrome into the panel.
+            if self._browser_handoff:
+                self._browser_handoff = False
+                if self.browser_close_btn is not None:
+                    self.browser_close_btn.visible = False
+                overlay, self._overlay = self._overlay, None
+                if overlay is not None:
+                    overlay.stop()
+            self.reset_browser()
+            self._browser_panel.visible = True
+            if row is not None:
+                if self._browser_panel not in row.controls:
+                    row.controls.append(self._browser_panel)
+                row.alignment = ft.MainAxisAlignment.START
+        else:
+            # During a TYPE 2 handoff the run is over but the operator is still
+            # finishing the manual step inside the embedded browser — keep the
+            # panel (and the overlay) up; _close_handoff_browser folds it later.
+            if self._browser_handoff:
+                return
+            self._stop_browser_overlay()
+            self._browser_panel.visible = False
+            self.reset_browser()
+            if row is not None:
+                if self._browser_panel in row.controls:
+                    row.controls.remove(self._browser_panel)
+                row.alignment = ft.MainAxisAlignment.CENTER
+
     def _build_chrome(self):
-        """A thin window-chrome strip ON THE BACKGROUND (above the panel):
-        a centered drag handle + window controls at the top-right. The native
-        title bar is hidden."""
-        # Subtle, translucent window controls — top-right (Windows convention).
+        """A thin window-chrome strip ON THE BACKGROUND (above the panel): the
+        window controls only (minimize + close). The app runs maximized and is
+        not movable or resizable, so there is no drag handle and no maximize/
+        restore control. The native title bar is hidden."""
+        # Subtle, translucent window controls — top-left in RTL (the leading edge).
         controls = ft.Container(
             bgcolor=ft.Colors.with_opacity(0.45, "#ffffff"),
             border_radius=Radius.PILL,
             padding=ft.padding.symmetric(horizontal=Space.XS),
-            content=ft.Row(spacing=0, tight=True, controls=[self.win_min, self.win_max, self.win_close]),
+            content=ft.Row(spacing=0, tight=True, controls=[self.win_min, self.win_close]),
         )
-        # A clearly-marked drag handle in the centre.
-        drag_handle = ft.Container(
-            bgcolor=ft.Colors.with_opacity(0.20, "#ffffff"),
-            border_radius=Radius.PILL,
-            padding=ft.padding.symmetric(horizontal=Space.LG, vertical=2),
-            tooltip="גרור להזזת החלון",
-            content=ft.Icon(ft.Icons.DRAG_HANDLE_ROUNDED, size=18,
-                            color=ft.Colors.with_opacity(0.65, "#000000")),
-        )
-        return ft.WindowDragArea(
-            maximizable=True,
-            content=ft.Container(
-                # proper distance from the top window border
-                padding=ft.padding.only(top=Space.MD, left=Space.LG, right=Space.LG, bottom=Space.SM),
-                content=ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[drag_handle, controls],  # RTL: drag → right corner, controls → left
-                ),
+        return ft.Container(
+            # proper distance from the top window border
+            padding=ft.padding.only(top=Space.MD, left=Space.LG, right=Space.LG, bottom=Space.SM),
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.END,  # RTL: controls → top-left corner
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[controls],
             ),
         )
 
     def _render(self) -> None:
+        # The live-browser panel (issue #19) is built once and joins the row only
+        # while a run is in flight (see _apply_run_layout).
+        self._browser_panel = self._build_browser_panel()
         console = ft.Row(
             expand=True, alignment=ft.MainAxisAlignment.CENTER,
             vertical_alignment=ft.CrossAxisAlignment.STRETCH,
@@ -643,9 +944,10 @@ class MainView:
         elif self._on_run:
             self._on_run(e)
 
-    def bind_actions(self, on_run, on_stop, on_settings, on_help) -> None:
+    def bind_actions(self, on_run, on_stop, on_settings, on_help, on_close_handoff=None) -> None:
         self._on_run = on_run
         self._on_stop = on_stop
+        self._on_close_handoff = on_close_handoff
         self.settings_button.on_click = on_settings
         self.help_button.on_click = on_help
 
@@ -850,6 +1152,8 @@ class MainView:
 
     def set_running(self, is_running: bool) -> None:
         self._running = is_running
+        # Reveal/hide the embedded live-browser panel beside the console (#19).
+        self._apply_run_layout(is_running)
         self.action_circle.disabled = False  # re-enable after a stop/finish cycle
         # Draw the eye to the feed button while output is streaming.
         self.feed_button.icon_color = Color.BRAND if is_running else Color.TEXT_SECONDARY
