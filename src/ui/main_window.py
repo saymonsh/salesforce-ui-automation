@@ -2,11 +2,21 @@ import asyncio
 import base64
 import os
 import queue
+import subprocess
 import threading
 from typing import Callable, Optional
 
 import flet as ft
 
+from src.automation.win_window import (
+    BrowserOverlay,
+    close_window,
+    find_window_by_title,
+    host_metrics,
+    set_process_dpi_aware,
+    window_pid,
+)
+from src.core.constants import APP_WINDOW_TITLE
 from src.core.config import config_instance as parm
 from src.core.status_messages import Status
 from src.core.utils import ltr_isolate
@@ -37,6 +47,18 @@ _PANEL_SHADOW = ft.BoxShadow(
 )
 
 _PANEL_WIDTH = 440
+
+# Insets (in Flet LOGICAL px) of the live-browser rectangle (browser_body) inside
+# the maximized window, used to place the owned-overlay Chrome (issue #19). These
+# MIRROR the run-mode layout — chrome strip height + the browser glass panel's
+# margin/padding/titlebar on the left, the console column on the right — and are
+# tuned by eye against the real window (the overlay shows the white browser_body
+# wherever they're off). LEFT/TOP measured from the client top-left; RIGHT/BOTTOM
+# are insets from the right/bottom client edges. Scaled by the window DPI at use.
+_OVL_LEFT = 36
+_OVL_TOP = 129
+_OVL_RIGHT = 470
+_OVL_BOTTOM = 44
 # 1×1 transparent PNG — the live-browser image's initial/blank source (Flet's
 # ft.Image needs a valid src; this never actually shows because the panel keeps
 # the placeholder mounted until the first real frame arrives).
@@ -80,19 +102,27 @@ class MainView:
         # Plain-text mirror of the rendered feed lines — backs copy-all / save /
         # clear so they don't have to read back ft.Text controls. Capped alongside.
         self._feed_lines: list[str] = []
-        # Live browser preview (issue #19): the latest screencast frame arrives on
-        # a worker/screencast thread and is held in a single slot (only the newest
-        # matters); a UI-loop task drains it into the embedded panel's image.
-        self._latest_frame: Optional[str] = None
-        self._frame_lock = threading.Lock()
-        self._browser_has_frame = False
+        # Embedded live browser (issue #19, owned-overlay): the REAL Chrome window
+        # is pinned over the panel rectangle as an owned overlay. The overlay is
+        # created when the worker reports Chrome is up (attach_browser) and torn
+        # down at run end. _overlay_host_hwnd caches our own window handle.
+        self._overlay = None
+        self._overlay_host_hwnd = None
+        self._overlay_suppressed_flag = False
+        # True between a TYPE 2 'action required' finish and the operator closing
+        # the browser from the panel — Chrome stays embedded (chromedriver is gone
+        # but the window lives) so the manual step is finished inside the app.
+        self._browser_handoff = False
+        self.browser_close_btn = None  # built with the browser panel
+        # Per-monitor-DPI-aware so our Win32 geometry matches Flutter's pixels.
+        set_process_dpi_aware()
 
         self._build_page()
         self._build_controls()
         self._render()
 
     def _build_page(self) -> None:
-        self.page.title = "כיוון — Salesforce Automation"
+        self.page.title = APP_WINDOW_TITLE
         # Restore size (used when the user un-maximizes); the app opens maximized.
         self.page.window.width = 600
         self.page.window.height = 712
@@ -118,6 +148,26 @@ class MainView:
     def _on_window_event(self, e) -> None:
         if getattr(e, "type", None) == ft.WindowEventType.CLOSE:
             self.save_draft()
+            self._kill_browser_on_close()
+
+    def _kill_browser_on_close(self) -> None:
+        """On app close (X / Alt+F4), make sure the embedded Chrome doesn't survive
+        as a stray taskbar window: an owned window can outlive a cross-process
+        owner under detach=True. Kill the tracked browser's process tree and any
+        chromedriver. Fast (no process enumeration) and best-effort; the startup
+        sweep is the backstop for anything missed."""
+        try:
+            pid = window_pid(self._overlay.chrome_hwnd) if self._overlay else None
+            if pid:
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                               capture_output=True, check=False)
+        except Exception:
+            pass
+        try:
+            subprocess.run(["taskkill", "/F", "/IM", "chromedriver.exe"],
+                           capture_output=True, check=False)
+        except Exception:
+            pass
 
     def _build_controls(self) -> None:
         # File picker is still needed for importing an Excel file into the grid
@@ -225,13 +275,10 @@ class MainView:
         )
         self.logs_holder = ft.Container(expand=True, content=self.logs_empty_view)
 
-        # --- Embedded live browser preview (issue #19) --------------------------
-        # A frame-by-frame mirror of the Selenium-driven Chrome window, fed by the
-        # CDP screencast. gapless_playback keeps the image steady (no white flash)
-        # as the src bytes are swapped per frame.
-        self.browser_image = ft.Image(
-            src=_BLANK_IMG, fit=ft.BoxFit.CONTAIN, expand=True, gapless_playback=True,
-        )
+        # --- Embedded live browser (issue #19, owned-overlay) -------------------
+        # The white panel area below; the REAL Chrome window is pinned over it as
+        # an owned overlay (win_window.BrowserOverlay) while a run is in flight, so
+        # this placeholder is only visible in the brief moment before Chrome shows.
         self.browser_placeholder = ft.Container(
             alignment=ft.Alignment.CENTER, expand=True,
             content=ft.Column(
@@ -290,6 +337,12 @@ class MainView:
         self._safe_update()
 
     async def _win_close(self, e):
+        # The app's custom title-bar X. This does NOT fire the OS-level CLOSE
+        # window event, so kill the embedded browser here too (issue #19) before
+        # closing — otherwise the owned Chrome can outlive the app as a stray
+        # taskbar window under detach=True.
+        self.save_draft()
+        self._kill_browser_on_close()
         # window.close() is a coroutine in Flet 0.84 — must be awaited.
         await self.page.window.close()
 
@@ -627,15 +680,41 @@ class MainView:
         is revealed beside the console only while a run is in flight (see
         _apply_run_layout), filling the empty background space the console leaves.
         """
-        live_dot = ft.Container(width=9, height=9, border_radius=Radius.PILL, bgcolor=Color.BRAND)
+        # The bottom margin is an optical correction: the LIVE label is all-caps,
+        # so its glyphs sit in the upper part of the text box (the descender space
+        # below goes unused) — a box-centred dot looks low. Nudging it up ~1px
+        # centres it on the letters themselves.
+        live_dot = ft.Container(width=9, height=9, border_radius=Radius.PILL, bgcolor=Color.BRAND,
+                                margin=ft.margin.only(bottom=2))
+        # Revealed only during a TYPE 2 'action required' handoff — closes the
+        # embedded browser once the operator finished the manual step. Filled in
+        # the brand color so the one next action is unmissable.
+        self.browser_close_btn = ft.FilledButton(
+            "סיימתי — סגור דפדפן", icon=ft.Icons.CHECK_ROUNDED, visible=False,
+            style=ft.ButtonStyle(
+                bgcolor=Color.BRAND, color="#ffffff",
+                padding=ft.padding.symmetric(horizontal=Space.LG, vertical=Space.SM),
+            ),
+            on_click=self._close_handoff_browser,
+        )
+        # Keep the dot + LIVE label in their own tight group so the dot centres
+        # against the label height alone — not the taller 'close browser' button,
+        # which would otherwise stretch the row and drop the dot below the text.
+        live_group = ft.Row(
+            spacing=Space.XS, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                live_dot,
+                ft.Text("LIVE", size=Type.CAPTION[0], weight=ft.FontWeight.W_700, color=Color.BRAND),
+            ],
+        )
         titlebar = ft.Row(
             spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 ft.Icon(ft.Icons.PUBLIC_ROUNDED, size=18, color=Color.TEXT_SECONDARY),
                 ft.Text("דפדפן חי", size=Type.TITLE[0], weight=ft.FontWeight.W_700, color=Color.TEXT_PRIMARY),
                 ft.Container(expand=True),
-                live_dot,
-                ft.Text("LIVE", size=Type.CAPTION[0], weight=ft.FontWeight.W_700, color=Color.BRAND),
+                self.browser_close_btn,
+                live_group,
             ],
         )
         return ft.Container(
@@ -653,57 +732,125 @@ class MainView:
             ),
         )
 
-    def enqueue_frame(self, b64: str) -> None:
-        """Thread-safe: store the newest screencast frame (drops any older one not
-        yet drawn — only the latest frame is worth showing)."""
-        with self._frame_lock:
-            self._latest_frame = b64
-
-    async def _drain_frames(self) -> None:
-        """UI-loop task: paint the newest frame into the panel at ~12fps. Capping
-        the rate keeps the image bridge light no matter how fast Chrome streams."""
-        while True:
-            await asyncio.sleep(0.08)
-            with self._frame_lock:
-                frame, self._latest_frame = self._latest_frame, None
-            if frame is None:
-                continue
-            self._set_frame(frame)
-
-    def _set_frame(self, b64: str) -> None:
-        # Flet 0.84's Image takes bytes (no src_base64); decode the CDP frame once.
-        try:
-            self.browser_image.src = base64.b64decode(b64)
-        except Exception:
+    # ------------------------------------------------------ embedded browser overlay
+    def attach_browser(self, hwnd: int) -> None:
+        """Embed the live Chrome window (its OS handle) as an owned overlay pinned
+        over the browser panel (issue #19). Called once the worker reports Chrome
+        is up. Best-effort: if the host window or the embed fails, the run just
+        proceeds without the live panel."""
+        if not hwnd:
             return
-        if not self._browser_has_frame:
-            # First frame: swap the placeholder out and do one full update so the
-            # body re-renders with the image control mounted.
-            self.browser_body.content = self.browser_image
-            self._browser_has_frame = True
-            self._safe_update()
-        else:
-            # Steady state: update just the image control (cheap; no full page diff).
-            try:
-                self.browser_image.update()
-            except Exception:
-                self._safe_update()
+        if os.environ.get("KIVUN_NO_EMBED"):
+            print("[embed] disabled via KIVUN_NO_EMBED — Chrome stays off-screen", flush=True)
+            return
+        self._stop_browser_overlay()  # guard against a stale overlay
+        host = find_window_by_title(self.page.title)
+        print(f"[embed] attach_browser chrome={hwnd} host={host}", flush=True)
+        if not host:
+            return
+        self._overlay_host_hwnd = host
+        overlay = BrowserOverlay(hwnd, host, self._browser_rect_provider)
+        ok = overlay.start()
+        print(f"[embed] overlay.start()={ok} rect={self._browser_rect_provider()}", flush=True)
+        if ok:
+            self._overlay = overlay
+
+    def enter_browser_handoff(self) -> None:
+        """TYPE 2 'action required' finish: keep Chrome EMBEDDED in the panel so
+        the operator finishes the manual step right here (the overlay is fully
+        interactive), and reveal a close button to shut the browser when done.
+        chromedriver is already gone; only the window lives on."""
+        if self._overlay is None:
+            return
+        self._browser_handoff = True
+        if self.browser_close_btn is not None:
+            self.browser_close_btn.visible = True
+        self._safe_update()
+
+    def _close_handoff_browser(self, _e=None) -> None:
+        """Panel close button: shut the handoff Chrome, fold the panel away, and
+        return the main action button to its idle 'waiting' state."""
+        overlay, self._overlay = self._overlay, None
+        self._browser_handoff = False
+        if self.browser_close_btn is not None:
+            self.browser_close_btn.visible = False
+        if overlay is not None:
+            overlay.stop()
+            close_window(overlay.chrome_hwnd)
+        # The whole operation is over → return the WHOLE screen to its clean idle
+        # state, not just the button: drop the 'action required' status text, the
+        # warning glyph, the amber progress bar and the counter — a fresh 'ready'
+        # screen. (Mirrors the idle reset in the process-type switch handler.)
+        self._action_required = False
+        label = _TYPE_META.get(self._type_value, ("", None))[0]
+        self.status_text.value = f"מצב: {label}" if label else "מוכן"
+        self.status_text.color = Color.TEXT_SECONDARY
+        self.hero_value.value, self.hero_value.color = "מוכן", Color.TEXT_PRIMARY
+        self.hero_icon.visible = False
+        self.progress_ring.color = self.linear.color = Color.BRAND
+        self.progress_ring.value = self.linear.value = 0
+        self.counter_text.value = ""
+        self.status_dot.bgcolor = Color.TEXT_TERTIARY
+        # set_running(False) re-renders the button to the idle ▶, folds the panel,
+        # and unlocks edits.
+        self.set_running(False)
+
+    def _stop_browser_overlay(self) -> None:
+        """Stop tracking the overlay (Chrome is about to be closed by the driver)."""
+        if self._overlay is not None:
+            self._overlay.stop()
+            self._overlay = None
+
+    def _browser_rect_provider(self):
+        """Target screen rectangle (physical px) for the overlay, or None to hide
+        it (idle, a covering dialog is open, or the window is minimized). Computed
+        from the live window geometry and the layout insets (see _OVL_*)."""
+        if (not self._running and not self._browser_handoff) or self._overlay_suppressed_flag:
+            return None
+        host = self._overlay_host_hwnd
+        if not host:
+            return None
+        m = host_metrics(host)
+        if m is None:
+            return None
+        ox, oy, cw, ch, s = m
+        x = ox + int(_OVL_LEFT * s)
+        y = oy + int(_OVL_TOP * s)
+        right = ox + cw - int(_OVL_RIGHT * s)
+        bottom = oy + ch - int(_OVL_BOTTOM * s)
+        w, h = right - x, bottom - y
+        if w <= 0 or h <= 0:
+            return None
+        return (x, y, w, h)
+
+    def set_overlay_suppressed(self, suppressed: bool) -> None:
+        """Temporarily hide the overlay (e.g. while a modal dialog covers the
+        panel — the owned window can't be clipped, so it would paint over it)."""
+        self._overlay_suppressed_flag = suppressed
 
     def reset_browser(self) -> None:
-        """Drop the current frame and return to the 'waiting' placeholder."""
-        self._browser_has_frame = False
-        self.browser_image.src = _BLANK_IMG
+        """Return the panel body to its 'waiting' placeholder."""
         self.browser_body.content = self.browser_placeholder
 
     def _apply_run_layout(self, running: bool) -> None:
         """Show/hide the live-browser panel beside the console (issue #19).
 
         While running, the console panel keeps its fixed width on the RTL leading
-        (right) side and the browser panel fills the remaining space to its left;
-        idle, the console returns to the centre on its own. Also pins the app
-        above the (behind-the-scenes) Chrome window so the mirror stays visible."""
+        (right) side and the browser panel fills the remaining space to its left
+        (the real Chrome window is pinned over it as an owned overlay); idle, the
+        console returns to the centre and the overlay is torn down."""
         row = getattr(self, "_console_row", None)
         if running:
+            # A new run while a handoff browser is still embedded: close it —
+            # the new run brings its own Chrome into the panel.
+            if self._browser_handoff:
+                self._browser_handoff = False
+                if self.browser_close_btn is not None:
+                    self.browser_close_btn.visible = False
+                overlay, self._overlay = self._overlay, None
+                if overlay is not None:
+                    overlay.stop()
+                    close_window(overlay.chrome_hwnd)
             self.reset_browser()
             self._browser_panel.visible = True
             if row is not None:
@@ -711,18 +858,18 @@ class MainView:
                     row.controls.append(self._browser_panel)
                 row.alignment = ft.MainAxisAlignment.START
         else:
+            # During a TYPE 2 handoff the run is over but the operator is still
+            # finishing the manual step inside the embedded browser — keep the
+            # panel (and the overlay) up; _close_handoff_browser folds it later.
+            if self._browser_handoff:
+                return
+            self._stop_browser_overlay()
             self._browser_panel.visible = False
             self.reset_browser()
             if row is not None:
                 if self._browser_panel in row.controls:
                     row.controls.remove(self._browser_panel)
                 row.alignment = ft.MainAxisAlignment.CENTER
-        # Keep the app on top while Chrome renders behind it (the screencast keeps
-        # flowing thanks to the occlusion-disable flags on the Chrome side).
-        try:
-            self.page.window.always_on_top = running
-        except Exception:  # pragma: no cover - older/newer Flet window API
-            pass
 
     def _build_chrome(self):
         """A thin window-chrome strip ON THE BACKGROUND (above the panel):
@@ -781,7 +928,6 @@ class MainView:
         self.page.add(root)
         self.page.update()
         self.page.run_task(self._drain_feed)  # start the activity-feed drainer
-        self.page.run_task(self._drain_frames)  # start the live-browser frame drainer
 
     # --------------------------------------------------------------- actions
     def _action_clicked(self, e):

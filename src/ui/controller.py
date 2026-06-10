@@ -57,7 +57,8 @@ class Controller:
             on_item_processed=self.on_item_processed,
             on_status=self.update_status,
             on_log=self.on_log,
-            on_frame=self.on_frame,
+            on_browser_ready=self.on_browser_ready,
+            on_browser_detached=self.on_browser_detached,
         )
         self.worker_manager.start_thread()
 
@@ -66,11 +67,29 @@ class Controller:
         # (it just puts on a queue drained by the UI loop), so no run_task needed.
         self.main_view.enqueue_terminal_line(line, level=level)
 
-    def on_frame(self, b64):
-        # Live Chrome screencast frame → embedded browser panel (issue #19).
-        # enqueue_frame is thread-safe (single-slot, drained on the UI loop), so
-        # like on_log it needs no run_task — important, as frames arrive fast.
-        self.main_view.enqueue_frame(b64)
+    def on_browser_ready(self, hwnd):
+        # Chrome's window is up (issue #19) → embed it as an owned overlay over the
+        # panel. Marshal onto the UI loop: it reads the Flet window's geometry and
+        # stores overlay state owned by the UI thread.
+        if self.page:
+            self.page.run_task(self._safe_attach_browser, hwnd)
+        else:
+            self.main_view.attach_browser(hwnd)
+
+    async def _safe_attach_browser(self, hwnd):
+        self.main_view.attach_browser(hwnd)
+
+    def on_browser_detached(self):
+        # Run ended in 'action required': chromedriver is gone but Chrome lives —
+        # keep it embedded in the panel so the operator finishes the manual step
+        # inside the app, with a panel button to close it when done.
+        if self.page:
+            self.page.run_task(self._safe_detach_browser)
+        else:
+            self.main_view.enter_browser_handoff()
+
+    async def _safe_detach_browser(self):
+        self.main_view.enter_browser_handoff()
 
     def on_worker_started(self, total_items: int):
         self.total_items = max(1, total_items)

@@ -5,4 +5,3 @@ pyperclip
 openpyxl
 flet
 tzdata
-websocket-client

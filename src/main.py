@@ -45,6 +45,11 @@ class _FeedStream:
 
 
 def build_app(page: ft.Page) -> None:
+    # Sweep up any automation Chrome/chromedriver left over from a previous session
+    # that didn't shut down cleanly (app X-ed mid-run, or a crash) — frees port
+    # 9515 and prevents orphan browsers piling up (issue #19).
+    from src.automation.driver_manager import cleanup_stray_automation_browsers
+    cleanup_stray_automation_browsers()
     view = MainView(page)
     Controller(page, view)
     # Route the running automation's terminal output into the activity feed.

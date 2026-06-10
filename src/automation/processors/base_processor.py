@@ -97,7 +97,13 @@ class BaseProcessor(ABC):
             self.driver.get(url)
 
             self.check_for_stop()
-            self.driver.maximize_window()
+            # Skip maximize when Chrome is embedded as an owned overlay (issue #19):
+            # maximizing a frameless owned popup blows it up to TRUE fullscreen
+            # (even the taskbar vanishes) and it escapes the panel. The overlay
+            # already sizes it, and a desktop-class --window-size covers the brief
+            # pre-embed moment. Non-embedded runs still maximize for a full viewport.
+            if not getattr(self.driver_manager, "on_browser_ready", None):
+                self.driver.maximize_window()
 
             self.check_for_stop()
             username = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_USERNAME_INPUT, check_stop_func=lambda: self.is_stopped)
