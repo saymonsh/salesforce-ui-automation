@@ -740,19 +740,13 @@ class MainView:
         proceeds without the live panel."""
         if not hwnd:
             return
-        if os.environ.get("KIVUN_NO_EMBED"):
-            print("[embed] disabled via KIVUN_NO_EMBED — Chrome stays off-screen", flush=True)
-            return
         self._stop_browser_overlay()  # guard against a stale overlay
         host = find_window_by_title(self.page.title)
-        print(f"[embed] attach_browser chrome={hwnd} host={host}", flush=True)
         if not host:
             return
         self._overlay_host_hwnd = host
         overlay = BrowserOverlay(hwnd, host, self._browser_rect_provider)
-        ok = overlay.start()
-        print(f"[embed] overlay.start()={ok} rect={self._browser_rect_provider()}", flush=True)
-        if ok:
+        if overlay.start():
             self._overlay = overlay
 
     def enter_browser_handoff(self) -> None:

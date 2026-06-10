@@ -168,7 +168,7 @@ class DriverManager:
             sleep(0.1)
         self.chrome_hwnd = hwnd
         if not hwnd:
-            logger.info("chrome window not found — no embedded panel", stage="driver")
+            logger.debug("chrome window not found — no embedded panel", stage="driver")
             return
         self.chrome_pid = window_pid(hwnd)
         # Kill the taskbar flash: reframe Chrome as a frameless owned tool-window
@@ -180,11 +180,11 @@ class DriverManager:
             # Pre-navigation (page is still data:,) — safe to do the hide→restyle→
             # show cycle that actually drops the already-shown taskbar button.
             reframe_as_owned(hwnd, host, hide_cycle=True)
-        logger.info(f"chrome window {hwnd} ready for embedding", stage="driver")
+        logger.debug(f"chrome window {hwnd} ready for embedding", stage="driver")
         try:
             self.on_browser_ready(hwnd)
         except Exception as e:
-            logger.info(f"on_browser_ready failed: {e}", stage="driver")
+            logger.debug(f"on_browser_ready failed: {e}", stage="driver")
 
     def close_driver(self):
         # Kill Chrome's process tree FIRST. With detach=True (needed for the TYPE 2

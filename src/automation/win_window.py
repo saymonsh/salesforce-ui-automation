@@ -231,22 +231,6 @@ def find_window_by_title(title: str) -> Optional[int]:
     return _visible_top_level(None, None, title)
 
 
-def suppress_taskbar(hwnd: Optional[int]) -> None:
-    """Strip a window's taskbar button immediately (WS_EX_TOOLWINDOW), best-effort.
-    Called the moment Chrome's window is found — before the UI overlay sets the
-    owner — so the brief taskbar flash between launch and embed is minimised."""
-    if _user32 is None or not hwnd:
-        return
-    try:
-        ex = _GetWindowLong(hwnd, GWL_EXSTYLE)
-        ex = (ex & ~WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW
-        _SetWindowLong(hwnd, GWL_EXSTYLE, ex)
-        _user32.SetWindowPos(hwnd, None, 0, 0, 0, 0,
-                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED)
-    except Exception:
-        pass
-
-
 def reframe_as_owned(chrome_hwnd: Optional[int], host_hwnd: Optional[int],
                      hide_cycle: bool = False) -> bool:
     """Strip Chrome's frame and make it a frameless, OWNED tool-window popup of
