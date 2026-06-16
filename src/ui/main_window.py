@@ -55,7 +55,10 @@ _PANEL_WIDTH = 440
 # are insets from the right/bottom client edges. Scaled by the window DPI at use.
 _OVL_LEFT = 36
 _OVL_TOP = 129
-_OVL_RIGHT = 470
+# = console footprint: width (440) + 2×console h-margin (Space.LG=16) + Row
+# default spacing (10) + browser-panel right padding (20). Moves in lockstep with
+# the console panel's horizontal margin below — see _build_console_panel.
+_OVL_RIGHT = 502
 _OVL_BOTTOM = 44
 # 1×1 transparent PNG — the live-browser image's initial/blank source (Flet's
 # ft.Image needs a valid src; this never actually shows because the panel keeps
@@ -646,7 +649,15 @@ class MainView:
             ],
         )
         return ft.Container(
-            width=_PANEL_WIDTH, margin=ft.margin.only(top=Space.XS, bottom=Space.XXL),
+            # Symmetric horizontal margin so the panel never sits flush against the
+            # screen edge when the run layout shoves it to the RTL-leading (right)
+            # side — otherwise its rounded corner + soft shadow get clipped there
+            # (it only looked clean while centered). Matches the browser panel's
+            # left margin (Space.LG) so the outer frame is even on both screen edges,
+            # and stays centered idle. The _OVL_RIGHT overlay inset is derived from
+            # this margin — keep them in sync.
+            width=_PANEL_WIDTH,
+            margin=ft.margin.only(top=Space.XS, bottom=Space.XXL, left=Space.LG, right=Space.LG),
             bgcolor=_GLASS_PANEL, border=ft.border.all(1, ft.Colors.with_opacity(0.55, "#ffffff")),
             border_radius=24, shadow=_PANEL_SHADOW, padding=Space.XL,
             content=ft.Column(
