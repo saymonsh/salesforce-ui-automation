@@ -2,8 +2,10 @@ import threading
 
 from src.automation.processors.attendance_processor import AttendanceProcessor
 from src.automation.processors.candidate_processor import CandidateProcessor
+from src.automation.processors.demo_processor import DemoProcessor
 from src.automation.processors.login_processor import LoginProcessor
 from src.core.config import config_instance as parm
+from src.core.constants import DRY_RUN
 from src.core.status_messages import Status
 from src.ui.worker import AutomationWorker
 
@@ -25,21 +27,26 @@ class WorkerManager:
             self.main_view.set_status(Status.MANUAL_EMPTY)
             return False
 
-        errors = parm.validate()
-        if errors:
-            error_msg = "הפרמטרים הבאים חסרים או שגויים עבור סוג התהליך שנבחר:\n\n• " + "\n• ".join(errors)
-            self.main_view.show_alert("שגיאת הגדרות", error_msg, "warning")
-            return False
-
-        if parm.TYPE == 1:
-            self.worker = AutomationWorker(LoginProcessor, source)
-        elif parm.TYPE == 2:
-            self.worker = AutomationWorker(CandidateProcessor, source)
-        elif parm.TYPE == 3:
-            self.worker = AutomationWorker(AttendanceProcessor, source)
+        # Dry-run skips the credential/URL validation (it never logs in) and runs
+        # the simulated processor for whatever TYPE is selected (#DRY_RUN).
+        if DRY_RUN:
+            self.worker = AutomationWorker(DemoProcessor, source)
         else:
-            self.main_view.show_alert("שגיאה", f"{parm.TYPE} איננו תהליך חוקי", "critical")
-            return False
+            errors = parm.validate()
+            if errors:
+                error_msg = "הפרמטרים הבאים חסרים או שגויים עבור סוג התהליך שנבחר:\n\n• " + "\n• ".join(errors)
+                self.main_view.show_alert("שגיאת הגדרות", error_msg, "warning")
+                return False
+
+            if parm.TYPE == 1:
+                self.worker = AutomationWorker(LoginProcessor, source)
+            elif parm.TYPE == 2:
+                self.worker = AutomationWorker(CandidateProcessor, source)
+            elif parm.TYPE == 3:
+                self.worker = AutomationWorker(AttendanceProcessor, source)
+            else:
+                self.main_view.show_alert("שגיאה", f"{parm.TYPE} איננו תהליך חוקי", "critical")
+                return False
 
         # Switch to running-state UI (stop button + progress bar) now that a valid
         # worker exists — applies to all process types, including TYPE 3.

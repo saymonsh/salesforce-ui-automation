@@ -236,6 +236,33 @@ def find_window_by_title(title: str) -> Optional[int]:
     return _visible_top_level(None, None, title)
 
 
+def list_top_level_windows() -> Set[int]:
+    """All visible, un-owned top-level window handles right now.
+
+    Used by the dry-run demo (--dry_run): snapshot before/after launching a
+    placeholder app, and the difference is the window it created. A snapshot diff
+    (rather than PID matching) is robust to single-instance apps and to launchers
+    that hand the window off to another process (e.g. a packaged mspaint on Win11).
+    """
+    out: Set[int] = set()
+    if _user32 is None:
+        return out
+
+    def _cb(hwnd, _l):
+        try:
+            if _user32.IsWindowVisible(hwnd) and not _user32.GetWindow(hwnd, GW_OWNER):
+                out.add(hwnd)
+        except Exception:
+            pass
+        return True
+
+    try:
+        _user32.EnumWindows(_WNDENUMPROC(_cb), 0)
+    except Exception:
+        return set()
+    return out
+
+
 class _GUID(ctypes.Structure):
     _fields_ = [
         ("Data1", ctypes.c_ulong),

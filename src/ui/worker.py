@@ -1,8 +1,10 @@
 from src.core.exceptions import StopRequestedException
 from src.core.config import config_instance as parm
+from src.core.constants import DRY_RUN
 from src.core.error_messages import humanize_error
 from src.core.logger import logger
 from src.automation.driver_manager import DriverManager
+from src.automation.demo_driver_manager import DemoDriverManager
 
 class _Emitter:
     def __init__(self):
@@ -66,7 +68,9 @@ class AutomationWorker:
         self.kwargs = kwargs
         self.signals = WorkerSignals()
         self.processor = None
-        self.driver_manager = DriverManager()
+        # Dry-run embeds a throwaway window instead of launching real Chrome, but
+        # through the same DriverManager surface (see DemoDriverManager / #DRY_RUN).
+        self.driver_manager = DemoDriverManager() if DRY_RUN else DriverManager()
 
     def stop(self):
         if self.processor:
