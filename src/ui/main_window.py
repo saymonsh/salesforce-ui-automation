@@ -179,8 +179,7 @@ class MainView:
             pass
 
     def _build_controls(self) -> None:
-        # File picker is still needed for importing an Excel file into the grid
-        # and for saving the activity-feed log — not for a main-screen file mode.
+        # File picker is used only for saving the activity-feed log.
         self.file_picker = ft.FilePicker()
         self.clipboard = ft.Clipboard()  # system clipboard for "copy all" in the feed
         self.page.services.append(self.file_picker)
@@ -302,8 +301,7 @@ class MainView:
 
         # --- Manual-entry grid (issue #16) --------------------------------------
         self.data_grid = DataGridView(
-            self.page, on_change=self._on_grid_change, on_import=self._import_grid_clicked,
-            on_save=self._close_grid_dialog)
+            self.page, on_change=self._on_grid_change, on_save=self._close_grid_dialog)
         self._restore_draft()  # repopulate the grid from the last session (issue #18)
         if self._type_value:
             self.data_grid.rebuild_for_type(self._type_value)
@@ -325,8 +323,8 @@ class MainView:
             style=ft.ButtonStyle(color=Color.BRAND, padding=Space.SM),
             on_click=lambda _: self.show_grid_dialog(),
         )
-        # The entry grid is the single input source (epic #14 / #18 — Excel is an
-        # import path into it, not a separate mode). Seed the zone once.
+        # The entry grid is the single input source (epic #14 / #18 — typed or
+        # smart-pasted, no Excel-file input). Seed the zone once.
         self._input_zone_holder = ft.Container(content=self._build_manual_zone())
         self._refresh_manual_zone()
 
@@ -1179,10 +1177,9 @@ class MainView:
             ft.Icons.CLOSE_ROUNDED, icon_color=Color.TEXT_SECONDARY, icon_size=20,
             tooltip="סגור", on_click=lambda _: self._close_grid_dialog(),
         )
-        # "ייבא מ-Excel" and "שמור וסגור" now live in the grid's own toolbar
-        # (next to add/paste/clear), so every action sits on one row — see
-        # DataGridView. The host still owns their handlers via the on_import /
-        # on_save callbacks passed when the grid was constructed.
+        # "שמור וסגור" lives in the grid's own toolbar (next to add/paste/clear),
+        # so every action sits on one row — see DataGridView. The host owns its
+        # handler via the on_save callback passed when the grid was constructed.
         self._grid_dialog = ft.AlertDialog(
             modal=True, rtl=True,
             # Same translucent glass as the settings dialog. The main panel is
@@ -1264,30 +1261,6 @@ class MainView:
             self.show_alert("שורות פגומות", Status.MANUAL_INVALID + "\n\n• " + "\n• ".join(reasons), "warning")
             return None
         return self.data_grid.to_source()
-
-    # --------------------------------------------------- grid Excel import/export
-    def _import_grid_clicked(self) -> None:
-        self.page.run_task(self._import_grid_async)
-
-    async def _import_grid_async(self) -> None:
-        files = await self.file_picker.pick_files(
-            allow_multiple=False, file_type=ft.FilePickerFileType.CUSTOM,
-            allowed_extensions=["xlsx", "xls"], dialog_title="ייבא קובץ Excel לטבלה",
-        )
-        if not files:
-            return
-        path = files[0].path or files[0].name
-        try:
-            if self._type_value == "3":
-                from src.automation.excel_import import read_matrix
-                self.data_grid.import_matrix(read_matrix(path))
-            else:
-                from src.automation.excel_import import read_tabular
-                self.data_grid.import_tabular_rows(read_tabular(path, self._type_value))
-        except Exception as ex:  # malformed/locked file — surface on the grid note
-            self.data_grid.note(f"ייבוא נכשל: {ex}", "error")
-            return
-        self.save_draft()  # the imported rows are now part of the draft
 
     # ------------------------------------------------------------- settings modal
     def show_settings_view(self, settings_container) -> None:

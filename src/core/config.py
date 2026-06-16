@@ -55,10 +55,10 @@ class Config:
         Validates the current configuration based on the selected TYPE.
         Returns a list of missing or invalid parameter names.
 
-        Input data always comes from the in-app entry grid now (epic #14 / issue
-        #18 — Excel is an import path into the grid, not a separate input mode),
-        so there is no file path to validate here: only credentials, the system
-        URL, and the TYPE-1 activity fields.
+        Input data always comes from the in-app entry grid (epic #14 / issue
+        #18 — typed or smart-pasted, no Excel-file input), so there is no file
+        path to validate here: only credentials, the system URL, and the TYPE-1
+        activity fields.
         """
         errors = []
 

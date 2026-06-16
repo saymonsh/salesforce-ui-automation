@@ -53,8 +53,8 @@ class Controller:
         self.worker_manager.stop()
 
     def on_run_click(self, _event=None):
-        # Input always comes from the in-app entry grid now (epic #14 / #18 —
-        # Excel is imported into the grid, never run directly).
+        # Input always comes from the in-app entry grid (epic #14 / #18) —
+        # typed or smart-pasted; there is no Excel-file input.
         source = self.main_view.get_manual_source()
         if source is None:
             return  # the grid is empty/invalid — main_view already alerted

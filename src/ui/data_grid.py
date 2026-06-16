@@ -1,11 +1,10 @@
 """In-app manual-entry grid (issue #16, epic #14 step 2).
 
-An editable table whose columns are derived from ``config.TYPE``. It is the
-manual-entry counterpart to loading an Excel file: the user types/edits rows
-here, and :meth:`DataGridView.to_source` hands the worker the *same* unified data
-model the Excel path produces (issue #15) — a :class:`MemoryTabularSource`
-(TYPE 1/2) or :class:`MemoryMatrixSource` (TYPE 3). The processors can't tell the
-two input media apart.
+An editable table whose columns are derived from ``config.TYPE``. The user
+types (or smart-pastes, issue #17) rows here, and :meth:`DataGridView.to_source`
+hands the worker a :class:`MemoryTabularSource` (TYPE 1/2) or
+:class:`MemoryMatrixSource` (TYPE 3). The grid is the *only* input source —
+there is no Excel-file import.
 
 Design notes:
   * The backing model is plain Python data (lists of dicts of strings + bools),
@@ -14,9 +13,8 @@ Design notes:
   * Cells are ``TextField`` / ``Checkbox`` only — no ``Dropdown`` (Flet 0.84 has
     no dropdown blur, see the project memory). ``update()`` is only ever called
     from event handlers (post-mount), never during build.
-  * Validation is lenient by design and mirrors the Excel path: IDs are
-    digits-only ≤ 9 (no Israeli check-digit), TYPE 3 IDs are padded to 9 exactly
-    like ``ExcelParser.parse_attendance_matrix``, and TYPE 3 dates/times use the
+  * Validation is lenient by design: IDs are digits-only ≤ 9 (no Israeli
+    check-digit), TYPE 3 IDs are padded to 9, and TYPE 3 dates/times use the
     ``YYYY-MM-DD`` / ``HH:MM`` shapes ``AttendanceProcessor`` feeds to strptime.
 """
 from __future__ import annotations
@@ -41,7 +39,6 @@ from src.ui.paste_parser import (
     RE_TIME as _RE_TIME,
     digits as _digits,
     id_valid,
-    normalize_display_date,
     normalize_iso_date,
     parse_matrix,
     parse_tabular,
@@ -61,11 +58,9 @@ class DataGridView:
     """
 
     def __init__(self, page: ft.Page, on_change: Optional[Callable[[], None]] = None,
-                 on_import: Optional[Callable[[], None]] = None,
                  on_save: Optional[Callable[[], None]] = None):
         self.page = page
         self._on_change = on_change
-        self._on_import = on_import  # host hook for the "ייבא מ-Excel" toolbar button
         self._on_save = on_save      # host hook for the "שמור וסגור" toolbar button
         self._type = "1"
 
@@ -209,7 +204,7 @@ class DataGridView:
         return ft.Column(spacing=Space.SM, expand=True, controls=[
             header,
             ft.Container(expand=True, content=rows_list),
-            self._toolbar(add_btn, self._paste_button(), self._import_button(), self._clear_button()),
+            self._toolbar(add_btn, self._paste_button(), self._clear_button()),
         ])
 
     def _tabular_cell(self, row: dict, key: str, width: int) -> ft.TextField:
@@ -329,7 +324,6 @@ class DataGridView:
                           style=ft.ButtonStyle(color=Color.BRAND),
                           on_click=lambda _e: self._add_date()),
             self._paste_button(),
-            self._import_button(),
             self._clear_button(),
         )
         return ft.Column(spacing=Space.SM, expand=True, controls=[
@@ -460,17 +454,6 @@ class DataGridView:
             "הדבק מ-Excel", icon=ft.Icons.CONTENT_PASTE_ROUNDED, tooltip=tip,
             style=ft.ButtonStyle(color=Color.BRAND),
             on_click=lambda _e: self._paste_clicked(),
-        )
-
-    def _import_button(self) -> ft.Control:
-        # Excel is an import path *into* the grid (replaces the table). The actual
-        # file picking/reading lives on the host (main_window); we just expose the
-        # button here so it sits beside add/paste/clear in one toolbar row.
-        return ft.TextButton(
-            "ייבא מ-Excel", icon=ft.Icons.UPLOAD_FILE_ROUNDED,
-            tooltip="טען קובץ Excel קיים אל תוך הטבלה (מחליף את התוכן הנוכחי)",
-            style=ft.ButtonStyle(color=Color.BRAND),
-            on_click=lambda _e: self._on_import() if self._on_import else None,
         )
 
     def _save_button(self) -> ft.Control:
@@ -689,7 +672,7 @@ class DataGridView:
 
     # -------------------------------------------------------------------- export
     def to_source(self):
-        """Return a Memory*Source mirroring the Excel shapes, or None if invalid."""
+        """Return a Memory*Source built from the grid, or None if invalid."""
         if not self.is_valid():
             return None
         if self._type == "3":
@@ -766,67 +749,6 @@ class DataGridView:
                 parts.append({"id": str(p.get("id", "")), "present": present})
             self._t3_parts = parts or [self._new_t3_part()]
 
-    # ------------------------------------------------------------- excel import
-    def note(self, message: str, level: str = "ok") -> None:
-        """Public hook for the host to surface an import/export result on the
-        grid's inline feedback line (reuses the smart-paste note)."""
-        self._set_note(message, level)
-
-    def import_tabular_rows(self, incoming: list[dict]) -> str:
-        """Load grid-keyed rows read from Excel (TYPE 1 / 2) into the table.
-
-        Unlike smart-paste (which *appends* a copied selection,
-        :meth:`_apply_tabular_paste`), importing a file *replaces* the current
-        rows: the user is loading "this file", not adding to whatever the draft
-        already held from a previous session — appending there would silently mix
-        old and new batches. (Now that Excel is the only file path, this is the
-        intuitive behaviour.)
-        """
-        if self._type == "2":
-            fields, factory = ("id",), self._new_t2_row
-        else:  # TYPE 1
-            fields, factory = ("id", "type", "date"), self._new_t1_row
-        incoming = [r for r in incoming if any((r.get(k) or "").strip() for k in fields)]
-        if not incoming:
-            msg = "לא נמצאו שורות לייבוא בקובץ"
-            self._set_note(msg, "error")
-            return msg
-        rows = [{k: r.get(k, "") for k in fields} for r in incoming]
-        if self._type == "2":
-            self._t2_rows = rows or [factory()]
-        else:
-            self._t1_rows = rows or [factory()]
-        if self._body is not None:
-            self._render_body()
-            self._body.update()
-        self._refresh_summary()
-        self._emit_change()
-        msg = f"יובאו {len(incoming)} שורות מ-Excel (החליפו את הטבלה)"
-        self._set_note(msg, "ok")
-        return msg
-
-    def import_matrix(self, matrix: dict) -> str:
-        """Load a TYPE 3 attendance matrix read from Excel into the grid.
-
-        The matrix dict carries ISO ``yyyy-mm-dd`` dates and ``נוכח``/``לא נוכח``
-        tokens; convert them back to the grid's editable form (display dates +
-        per-date booleans). Replaces the current matrix (a matrix is one whole).
-        """
-        iso_dates = [str(d) for d in matrix.get("dates", [])]
-        self._t3_start = str(matrix.get("start_time", ""))
-        self._t3_end = str(matrix.get("end_time", ""))
-        self._t3_dates = [normalize_display_date(d) or d for d in iso_dates] or [""]
-        parts = []
-        for p in matrix.get("participants", []):
-            attendance = p.get("attendance", {})
-            present = [attendance.get(d) == _PRESENT for d in iso_dates]
-            parts.append({"id": str(p.get("id_number", "")), "present": present})
-        self._t3_parts = parts or [self._new_t3_part()]
-        self._rerender_t3()
-        msg = f"יובאו {len(parts)} משתתפים · {len(iso_dates)} תאריכים"
-        self._set_note(msg, "ok")
-        return msg
-
     def _build_matrix(self) -> dict:
         # The grid holds Israeli d.m.yyyy dates; the processor wants ISO
         # (strptime "%Y-%m-%d %H:%M"), so convert here at the source boundary.
@@ -836,7 +758,7 @@ class DataGridView:
         participants = []
         for p in self._t3_filled_parts():
             id_str = _digits(p["id"])
-            if len(id_str) <= 9:  # mirror ExcelParser padding to 9
+            if len(id_str) <= 9:  # pad IDs to 9 digits (TYPE 3 convention)
                 id_str = id_str.zfill(9)
             attendance = {}
             for col_index, date_str in date_cols:
