@@ -9,6 +9,11 @@ seams a real run uses, so the owned-overlay panel (issue #19) is exercised too.
 It emits the *real* :class:`Status` strings for the configured ``TYPE`` so the
 screen looks exactly like a live run. Only the work is faked; every signal the UI
 reacts to is genuine.
+
+To preview the *partial-success* path (the completion dialog's "problems" zone +
+the persistent summary card), give a row/participant the ID number ``"0"`` (the
+``_DEMO_FAIL_ID`` sentinel): it is reported as a failed row (TYPE 1) / unmatched
+ID (TYPE 3). A clean run (no sentinel) shows only the success dialog.
 """
 from src.automation.processors.base_processor import BaseProcessor
 from src.core.config import config_instance as parm
@@ -19,6 +24,12 @@ from src.core.utils import smart_sleep
 # Pacing of the simulated run (seconds). Slow enough to watch the UI react.
 _LOGIN_DELAY = 1.2
 _ITEM_DELAY = 0.7
+
+# Dry-run failure sentinel: in --dry_run, any row / participant whose ID number is
+# exactly this value is simulated as a failure (TYPE 1) / unmatched ID (TYPE 3),
+# so the completion dialog's "problems" zone + the summary card can be previewed.
+# "0" is a valid grid ID (id_valid accepts 1-9 digits) so it won't flag as corrupt.
+_DEMO_FAIL_ID = "0"
 
 
 class DemoProcessor(BaseProcessor):
@@ -57,7 +68,7 @@ class DemoProcessor(BaseProcessor):
                 self.signals.item_processed.emit()
 
         logger.reset_context()
-        return self._finish(total)
+        return self._finish(source, total)
 
     # ------------------------------------------------------------------ helpers
     def _items(self, source):
@@ -67,6 +78,11 @@ class DemoProcessor(BaseProcessor):
         if hasattr(source, "matrix"):
             return list((source.matrix() or {}).get("dates") or [])
         return []
+
+    @staticmethod
+    def _demo_fail_ids(ids):
+        """The IDs equal to the dry-run failure sentinel (see _DEMO_FAIL_ID)."""
+        return [str(i) for i in ids if str(i).strip() == _DEMO_FAIL_ID]
 
     def _processing_status(self, n, total, item):
         t = parm.TYPE
@@ -80,8 +96,13 @@ class DemoProcessor(BaseProcessor):
             return Status.t3_processing(str(item), n, total)
         return f"מעבד {n} מתוך {total}"
 
-    def _finish(self, total):
-        """Reproduce the real end state for the configured type."""
+    def _finish(self, source, total):
+        """Reproduce the real end state for the configured type.
+
+        In --dry_run, IDs equal to _DEMO_FAIL_ID ("0") are simulated as problems
+        (failed rows for TYPE 1, unmatched IDs for TYPE 3) so the completion
+        dialog's "problems" zone + the summary card can be previewed end-to-end.
+        """
         t = parm.TYPE
         if t == 2:
             # TYPE 2 ends 'action required': keep the (placeholder) window open and
@@ -92,11 +113,24 @@ class DemoProcessor(BaseProcessor):
             self.update_ui(status=Status.t2_done(total), level="warning")
             return None
         if t == 3:
+            participants = (source.matrix() or {}).get("participants") or [] \
+                if hasattr(source, "matrix") else []
+            missing = self._demo_fail_ids(p.get("id_number") for p in participants)
             self.update_ui(status=Status.t3_done(total), level="success")
-            # Surface the persistent summary card too (no unmatched IDs in a demo).
-            return {"sessions_created": total, "missing_ids": []}
+            summary = {"success_text": Status.t3_summary(total)}
+            if missing:
+                summary["problems_title"] = Status.missing_ids_title(len(missing))
+                summary["problem_ids"] = missing
+            return summary
+        # TYPE 1
+        rows = source.rows() if hasattr(source, "rows") else []
+        failed = self._demo_fail_ids(r.get("תעודות זהות") for r in rows)
         self.update_ui(status=Status.t1_done(total), level="success")
-        return None
+        summary = {"success_text": Status.t1_summary(total - len(failed))}
+        if failed:
+            summary["problems_title"] = Status.failed_rows_title(len(failed))
+            summary["problem_ids"] = failed
+        return summary
 
 
 # --------------------------------------------------------------------- self-check
@@ -128,11 +162,16 @@ if __name__ == "__main__":
 
     parm.TYPE = 1  # force a known type for the assertions
     sig = _Signals()
+    # Second row uses the dry-run failure sentinel ("0") to exercise the problems zone.
     src = MemoryTabularSource([{"תעודות זהות": "111", "סוג": 1},
-                               {"תעודות זהות": "222", "סוג": 1}])
-    DemoProcessor(signals=sig, driver_manager=_StubDM()).process(src)
+                               {"תעודות זהות": "0", "סוג": 2}])
+    result = DemoProcessor(signals=sig, driver_manager=_StubDM()).process(src)
 
     assert sig.started.calls == [(2,)], sig.started.calls
     assert len(sig.item_processed.calls) == 2, sig.item_processed.calls
     assert any("הסתיים" in c[0] for c in sig.status.calls), sig.status.calls
-    print("OK — started(2), 2×item_processed, done status emitted")
+    # The processor returns a run summary that feeds the completion dialog/card,
+    # and the "0" sentinel surfaces as a simulated failed row.
+    assert result and "בהצלחה" in result["success_text"], result
+    assert result.get("problems_title") and result["problem_ids"] == ["0"], result
+    print("OK — started(2), 2×item_processed, done status + summary with sentinel failure")

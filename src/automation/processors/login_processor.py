@@ -27,6 +27,11 @@ class LoginProcessor(BaseProcessor):
         if self.signals:
             self.signals.started.emit(total)
 
+        # Rows that errored mid-run (סוג 2-6 only — סוג 1 aborts the whole run).
+        # Collected instead of silently swallowed so the completion summary reports
+        # them honestly rather than counting a failed row as "processed".
+        failed: list[tuple] = []
+
         for index, row in enumerate(rows):
             self.check_for_stop()
 
@@ -72,9 +77,17 @@ class LoginProcessor(BaseProcessor):
                 logger.error(f"failed for id {id_number}: {e}", stage="run", row=n, exc=True)
                 if row['סוג'] == 1:
                     raise Exception("Critical Failure: Type 1 processing failed.")
+                failed.append((id_number, str(e)))
 
             if self.signals:
                 self.signals.item_processed.emit()
 
         logger.reset_context()
         self.update_ui(status=Status.t1_done(total), level="success")
+
+        # Structured run summary for the completion dialog + persistent card.
+        summary = {"success_text": Status.t1_summary(total - len(failed))}
+        if failed:
+            summary["problems_title"] = Status.failed_rows_title(len(failed))
+            summary["problem_ids"] = [str(i) for i, _ in failed]
+        return summary

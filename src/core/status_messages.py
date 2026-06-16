@@ -35,6 +35,35 @@ class Status:
     STOPPING = "עוצר…"
     STOPPED_PLAIN = "התהליך נעצר"
 
+    # End-of-run completion dialog (reuses the same alert component as a failure —
+    # one unified "system message" language for both outcomes). Title + a body
+    # built from the run summary by ``completion_body`` below.
+    COMPLETED_TITLE = "הריצה הושלמה"
+
+    @staticmethod
+    def failed_rows_title(n: int) -> str:
+        return f"{_iso(n)} שורות נכשלו ולא דווחו:"
+
+    @staticmethod
+    def missing_ids_title(n: int) -> str:
+        return f"{_iso(n)} ת.ז. לא אותרו ולא עודכנו:"
+
+    @staticmethod
+    def completion_body(summary: dict) -> str:
+        """Build the success-dialog body from a run summary dict.
+
+        Shape: ``{"success_text": str, "problems_title": str?, "problem_ids": [..]}``.
+        The success line always shows; the problems block (failed rows in TYPE 1,
+        unmatched IDs in TYPE 3 — they never co-occur) is appended when present.
+        IDs are LTR-isolated so digits render correctly inside the RTL prose.
+        """
+        body = summary.get("success_text", "")
+        title = summary.get("problems_title")
+        if title:
+            ids = summary.get("problem_ids") or []
+            body += "\n\n" + title + "\n" + " · ".join(_iso(str(x)) for x in ids)
+        return body
+
     @staticmethod
     def stopped(done: int | None = None, total: int | None = None) -> str:
         # Row-based types (1/2) report progress; date-based type 3 has no row
@@ -62,6 +91,12 @@ class Status:
     def t1_done(total: int) -> str:
         return f"הסתיים — {_iso(total)} שורות עובדו"
 
+    @staticmethod
+    def t1_summary(ok: int) -> str:
+        # Success line for the completion dialog / summary card — counts only the
+        # rows that actually succeeded (failed rows are listed separately).
+        return f"{_iso(ok)} שורות עובדו בהצלחה"
+
     # --- TYPE 2 — מועמדים (end state requires manual action → warning) -------
     @staticmethod
     def t2_processing(n: int, total: int, id_number) -> str:
@@ -88,7 +123,31 @@ class Status:
         return f"נוצרו {_iso(n)} מפגשים"
 
     @staticmethod
+    def t3_summary(sessions: int) -> str:
+        # Success line for the completion dialog / summary card (TYPE 3).
+        return f"{_iso(sessions)} מפגשים נוצרו ודווחו בהצלחה"
+
+    @staticmethod
     def t3_missing(missing_ids: list[str]) -> str:
         # Count only — the full ID list lives in the persistent run-summary card,
         # so this stays short enough never to truncate on the one-line status field.
         return f"שים לב: {_iso(len(missing_ids))} ת.ז. לא אותרו ולא עודכנו — ראה כרטיס סיכום"
+
+
+# --------------------------------------------------------------------- self-check
+# Runnable check (no framework): `python -m src.core.status_messages`.
+# Guards the completion-dialog body builder — the one piece of non-trivial logic
+# here (clean success vs. partial success with a listed problem block).
+if __name__ == "__main__":
+    clean = Status.completion_body({"success_text": Status.t1_summary(12)})
+    assert "12" in clean and "בהצלחה" in clean, clean
+    assert "נכשלו" not in clean, clean  # no problem block when nothing failed
+
+    partial = Status.completion_body({
+        "success_text": Status.t1_summary(9),
+        "problems_title": Status.failed_rows_title(3),
+        "problem_ids": ["311111111", "305554321"],
+    })
+    assert "9" in partial and "נכשלו" in partial, partial
+    assert "311111111" in partial and "305554321" in partial, partial
+    print("OK — completion_body builds clean + partial run summaries")

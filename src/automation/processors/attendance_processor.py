@@ -236,13 +236,13 @@ class AttendanceProcessor(BaseProcessor):
             if missing_ids:
                 self.update_ui(status=Status.t3_missing(missing_ids), level="warning")
 
-            # Structured run summary for the persistent summary card. The UI
-            # formats and LTR-isolates these for display; missing_ids may be empty.
-            return {
-                "type": 3,
-                "sessions_created": sessions_created,
-                "missing_ids": list(missing_ids),
-            }
+            # Structured run summary for the completion dialog + persistent card.
+            # The UI formats and LTR-isolates the IDs for display.
+            summary = {"success_text": Status.t3_summary(sessions_created)}
+            if missing_ids:
+                summary["problems_title"] = Status.missing_ids_title(len(missing_ids))
+                summary["problem_ids"] = [str(x) for x in missing_ids]
+            return summary
 
         finally:
             # StopRequestedException and genuine failures propagate to the worker,

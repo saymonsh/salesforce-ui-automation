@@ -180,9 +180,18 @@ class Controller:
             self.main_view.set_status(Status.stopped(self.current_item, self.total_items))
         else:
             self.main_view.set_progress(1.0)
-            # Persistent end-of-run summary (currently TYPE 3): full session count +
-            # the complete, copyable list of IDs that weren't updated — so nothing
-            # is lost to the one-line status field's truncation.
+            # Success speaks through the SAME alert component as a failure (one
+            # unified completion language): a single dialog announces the result and
+            # lists any problems (failed rows / unmatched IDs), with a copy button
+            # for those IDs — so there's one completion surface, not a dialog plus a
+            # separate card.
             if summary:
-                self.main_view.show_run_summary(summary)
+                problems = summary.get("problem_ids") or []
+                self.main_view.show_alert(
+                    Status.COMPLETED_TITLE, Status.completion_body(summary), "success",
+                    copy_text="\n".join(str(x) for x in problems) if problems else None,
+                    # Dismissing the completion dialog returns the hero to 'מוכן' —
+                    # closing 'הושלם' readies the screen for the next run.
+                    on_closed=self.main_view.reset_to_idle,
+                )
 

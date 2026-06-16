@@ -227,8 +227,6 @@ class MainView:
             value=0, color=Color.BRAND, bgcolor=_LINEAR_TRACK,
             bar_height=6, border_radius=Radius.PILL,
         )
-        # Persistent end-of-run summary card (TYPE 3) — hidden until a run finishes.
-        self._summary_holder = self._build_summary_card()
 
         # --- Process-type inline selector ---------------------------------------
         self._type_segments: dict[str, ft.Container] = {}
@@ -669,7 +667,6 @@ class MainView:
                     self._input_zone_holder,
                     self._build_hero(),
                     self.linear,
-                    self._summary_holder,
                 ],
             ),
         )
@@ -798,16 +795,7 @@ class MainView:
         # state, not just the button: drop the 'action required' status text, the
         # warning glyph, the amber progress bar and the counter — a fresh 'ready'
         # screen. (Mirrors the idle reset in the process-type switch handler.)
-        self._action_required = False
-        label = _TYPE_META.get(self._type_value, ("", None))[0]
-        self.status_text.value = f"מצב: {label}" if label else "מוכן"
-        self.status_text.color = Color.TEXT_SECONDARY
-        self.hero_value.value, self.hero_value.color = "מוכן", Color.TEXT_PRIMARY
-        self.hero_icon.visible = False
-        self.progress_ring.color = self.linear.color = Color.BRAND
-        self.progress_ring.value = self.linear.value = 0
-        self.counter_text.value = ""
-        self.status_dot.bgcolor = Color.TEXT_TERTIARY
+        self.reset_to_idle()
         # set_running(False) re-renders the button to the idle ▶, folds the panel,
         # and unlocks edits.
         self.set_running(False)
@@ -962,107 +950,6 @@ class MainView:
         self.settings_button.on_click = on_settings
         self.help_button.on_click = on_help
 
-    def _build_summary_card(self) -> ft.Container:
-        """Persistent end-of-run summary (TYPE 3). Shows the session count and,
-        when present, the full list of ID numbers that weren't updated — visible
-        and selectable so the operator can copy them, instead of being truncated
-        on the one-line status field."""
-        self._summary_success_text = ft.Text(
-            "", size=Type.BODY[0], color=Color.TEXT_PRIMARY, weight=ft.FontWeight.W_500,
-        )
-        self._summary_warn_title = ft.Text(
-            "", size=Type.CAPTION[0], color=Color.ACTION_REQUIRED, weight=ft.FontWeight.W_700,
-        )
-        # Selectable too, but the copy button is the primary affordance — it copies
-        # the clean IDs (no LTR-isolate chars), one per line for easy re-checking.
-        self._summary_ids_text = ft.Text(
-            "", size=Type.CAPTION[0], color=Color.TEXT_PRIMARY, selectable=True,
-        )
-        self._summary_ids_raw: list[str] = []
-        self._summary_copy_btn = ft.IconButton(
-            icon=ft.Icons.CONTENT_COPY_ROUNDED, icon_size=16, icon_color=Color.TEXT_SECONDARY,
-            tooltip="העתק ת.ז.", on_click=lambda _: self._copy_missing_ids(),
-        )
-        self._summary_warn_block = ft.Container(
-            visible=False,
-            bgcolor=ft.Colors.with_opacity(0.12, Color.ACTION_REQUIRED),
-            border_radius=Radius.MD, padding=Space.SM,
-            content=ft.Column(spacing=Space.XS, controls=[
-                ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
-                    ft.Row(spacing=Space.SM, controls=[
-                        ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, size=18, color=Color.ACTION_REQUIRED),
-                        self._summary_warn_title,
-                    ]),
-                    self._summary_copy_btn,
-                ]),
-                ft.Container(
-                    height=120,
-                    content=ft.Column(scroll=ft.ScrollMode.AUTO, controls=[self._summary_ids_text]),
-                ),
-            ]),
-        )
-        header = ft.Row(
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            controls=[
-                ft.Row(spacing=Space.SM, controls=[
-                    ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=20, color=Color.SUCCESS),
-                    ft.Text("סיכום ריצה", size=Type.TITLE[0], weight=ft.FontWeight.W_700,
-                            color=Color.TEXT_PRIMARY),
-                ]),
-                ft.IconButton(
-                    icon=ft.Icons.CLOSE_ROUNDED, icon_size=18, icon_color=Color.TEXT_SECONDARY,
-                    tooltip="סגור", on_click=lambda _: self.clear_run_summary(),
-                ),
-            ],
-        )
-        return ft.Container(
-            visible=False, width=_PANEL_WIDTH - 2 * Space.XL,
-            bgcolor=Color.SURFACE, border_radius=Radius.LG,
-            border=ft.border.all(1, ft.Colors.with_opacity(0.5, Color.BORDER)),
-            padding=Space.MD,
-            content=ft.Column(spacing=Space.SM, controls=[
-                header, self._summary_success_text, self._summary_warn_block,
-            ]),
-        )
-
-    def show_run_summary(self, summary: dict | None) -> None:
-        """Populate and reveal the run-summary card from a processor result dict."""
-        if not summary:
-            return
-        sessions = summary.get("sessions_created", 0)
-        missing = summary.get("missing_ids") or []
-        self._summary_success_text.value = f"{ltr_isolate(sessions)} מפגשים נוצרו ודווחו בהצלחה"
-        if missing:
-            self._summary_ids_raw = [str(x) for x in missing]
-            self._summary_warn_title.value = f"{ltr_isolate(len(missing))} ת.ז. לא אותרו ולא עודכנו:"
-            self._summary_ids_text.value = ", ".join(ltr_isolate(x) for x in missing)
-            self._summary_warn_block.visible = True
-        else:
-            self._summary_ids_raw = []
-            self._summary_warn_block.visible = False
-        self._summary_holder.visible = True
-        self._safe_update()
-
-    def clear_run_summary(self) -> None:
-        self._summary_holder.visible = False
-        self._safe_update()
-
-    def _copy_missing_ids(self) -> None:
-        """Copy the unmatched IDs (clean, no isolate chars) — one per line."""
-        if not self._summary_ids_raw:
-            return
-        self.page.run_task(self._copy_missing_ids_async)
-
-    async def _copy_missing_ids_async(self) -> None:
-        try:
-            await self.clipboard.set("\n".join(self._summary_ids_raw))
-        except Exception:
-            return
-        await self._flash_btn(
-            self._summary_copy_btn, ft.Icons.CHECK_ROUNDED, Color.SUCCESS, "הועתק!",
-            ft.Icons.CONTENT_COPY_ROUNDED, "העתק ת.ז.", rest_color=Color.TEXT_SECONDARY,
-        )
-
     def set_status(self, text: str, level: str | None = None) -> None:
         """Updates the hero state/caption only. The feed shows real terminal output."""
         if not text:
@@ -1081,13 +968,14 @@ class MainView:
             self.status_dot.bgcolor = Color.DANGER
             self.hero_value.value = "שגיאה"
         elif level == "success":
-            self.status_text.color = self.hero_value.color = Color.SUCCESS
-            self.progress_ring.color = self.linear.color = Color.SUCCESS
+            # Success is announced by the completion dialog + summary card (the same
+            # alert component the failure path uses) — NOT by recoloring the hero.
+            # Keep the hero calm: lock progress at 100% and show a neutral 'done'
+            # title. set_running(False), which runs right after on finish, returns
+            # the button and status dot to their idle look.
+            self.status_text.color = Color.TEXT_SECONDARY
+            self.hero_value.color = Color.TEXT_PRIMARY
             self.progress_ring.value = self.linear.value = 1
-            self.status_dot.bgcolor = Color.SUCCESS
-            self.action_circle.bgcolor = Color.SUCCESS
-            self.action_circle.shadow.color = ft.Colors.with_opacity(0.35, Color.SUCCESS)
-            self.action_circle.content = self.play_icon  # run finished → idle triangle
             self.hero_value.value = "הושלם"
         elif level == "warning":
             # 'Action required' (TYPE 2 end state). The amber lives on the action
@@ -1184,7 +1072,6 @@ class MainView:
             self.status_dot.bgcolor = Color.BRAND
             self.hero_value.value, self.hero_value.color = "0%", Color.TEXT_PRIMARY
             self.counter_text.value = ""
-            self._summary_holder.visible = False  # drop the previous run's summary
             # Dim the type selector — switching process mid-run is blocked.
             for seg in self._type_segments.values():
                 seg.opacity = 0.55 if seg.data != self._type_value else 1.0
@@ -1434,7 +1321,8 @@ class MainView:
         self._refresh_type()
         self._safe_update()
 
-    def show_alert(self, title: str, message: str, level: str = "info") -> None:
+    def show_alert(self, title: str, message: str, level: str = "info",
+                   copy_text: str | None = None, on_closed=None) -> None:
         # While the console terminal is open it owns the screen — errors already
         # stream into it as ERR lines, so don't stack popup alerts on top of it.
         if self._feed_dialog is not None:
@@ -1442,8 +1330,30 @@ class MainView:
         icon = {
             "warning": ft.Icons.WARNING_AMBER_ROUNDED, "error": ft.Icons.ERROR_OUTLINE_ROUNDED,
             "critical": ft.Icons.ERROR_OUTLINE_ROUNDED, "info": ft.Icons.INFO_OUTLINE_ROUNDED,
+            "success": ft.Icons.CHECK_CIRCLE_ROUNDED,
         }.get(level, ft.Icons.INFO_OUTLINE_ROUNDED)
-        icon_color = Color.DANGER if level in ("error", "critical") else Color.BRAND
+        # Success reuses this same alert as the failure path — the only chromatic
+        # signal is the small green check glyph (mirrors the red glyph on failure).
+        icon_color = (
+            Color.DANGER if level in ("error", "critical")
+            else Color.SUCCESS if level == "success"
+            else Color.BRAND
+        )
+        # Optional copy affordance — used by the completion dialog to copy the
+        # list of failed / unmatched IDs (the message text is selectable too, but a
+        # one-click copy is the convenience the old summary card provided).
+        # ponytail: the message is a single (wrapping) Text with no scroll — a run
+        # with very many failed IDs makes a tall dialog. Fine for typical runs;
+        # upgrade to a height-capped scroll region if that ever bites.
+        actions: list[ft.Control] = []
+        if copy_text:
+            copy_btn = ft.IconButton(
+                icon=ft.Icons.CONTENT_COPY_ROUNDED, icon_size=18,
+                icon_color=Color.TEXT_SECONDARY, tooltip="העתק ת.ז.",
+            )
+            copy_btn.on_click = lambda _: self.page.run_task(
+                self._copy_alert_ids, copy_btn, copy_text)
+            actions.append(copy_btn)
         dialog = ft.AlertDialog(
             modal=True,
             # Dialogs render in an overlay that does NOT inherit page.rtl, so set
@@ -1458,11 +1368,50 @@ class MainView:
                 width=420,
                 content=ft.Text(message, selectable=True, color=Color.TEXT_PRIMARY, text_align=ft.TextAlign.RIGHT),
             ),
-            actions=[ft.TextButton("סגור", on_click=lambda _: self._close_dialog(dialog))],
+            actions=actions + [ft.TextButton("סגור", on_click=lambda _: self._close_alert(dialog, on_closed))],
             actions_alignment=ft.MainAxisAlignment.END,
         )
         self.page.show_dialog(dialog)
         self._safe_update()
+
+    def _close_alert(self, dialog: ft.AlertDialog, on_closed=None) -> None:
+        """Close an alert and run an optional after-close hook. The completion
+        dialog uses the hook to return the hero to 'מוכן' (reset_to_idle), so
+        dismissing 'הושלם' readies the screen for the next run."""
+        self._close_dialog(dialog)
+        if on_closed:
+            on_closed()
+            self._safe_update()
+
+    def reset_to_idle(self) -> None:
+        """Return the hero/status to a fresh 'ready' look (no run in progress).
+
+        Used both when the operator finishes a TYPE 2 handoff and when the
+        completion dialog is dismissed — closing the 'הושלם' screen should leave
+        it ready for the next run ('מוכן'), not a stale 'done' marker. Does NOT
+        touch the action button: its idle ▶ is already set by set_running(False)
+        on finish, and the handoff path calls set_running(False) right after this."""
+        self._action_required = False
+        label = _TYPE_META.get(self._type_value, ("", None))[0]
+        self.status_text.value = f"מצב: {label}" if label else "מוכן"
+        self.status_text.color = Color.TEXT_SECONDARY
+        self.hero_value.value, self.hero_value.color = "מוכן", Color.TEXT_PRIMARY
+        self.hero_icon.visible = False
+        self.progress_ring.color = self.linear.color = Color.BRAND
+        self.progress_ring.value = self.linear.value = 0
+        self.counter_text.value = ""
+        self.status_dot.bgcolor = Color.TEXT_TERTIARY
+
+    async def _copy_alert_ids(self, btn, text: str) -> None:
+        """Copy the alert's IDs (raw, one per line) and flash the copy button."""
+        try:
+            await self.clipboard.set(text)
+        except Exception:
+            return
+        await self._flash_btn(
+            btn, ft.Icons.CHECK_ROUNDED, Color.SUCCESS, "הועתק!",
+            ft.Icons.CONTENT_COPY_ROUNDED, "העתק ת.ז.", rest_color=Color.TEXT_SECONDARY,
+        )
 
     def show_help_dialog(self) -> None:
         self.page.show_dialog(create_help_dialog(self.page))
