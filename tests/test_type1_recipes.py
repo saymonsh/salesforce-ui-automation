@@ -12,7 +12,28 @@ against drift and the invariants we rely on, decoded from ``actions.py``:
 A change that violates any of these fails loudly here instead of silently
 showing the operator the wrong action.
 """
-from src.ui.data_grid import TYPE1_RECIPES, _SVC_LABEL, _recipe_chips
+from src.ui.data_grid import TYPE1_RECIPES, _SVC_LABEL, _recipe_chips, DataGridView
+
+
+def check_type_only_seed_is_ignored() -> None:
+    """A new TYPE 1 row inherits the last-picked סוג (``_new_t1_row``). A row that
+    carries ONLY that inherited type (no id/date) is the trailing seed — it must
+    stay ignorable like a fully-empty row, or it gets flagged as a פגומה row and
+    blocks the run after the first pick. Guards ``_t1_filled`` / ``_apply_type_to_all``.
+    """
+    grid = DataGridView(None)  # no page needed: these paths never touch it
+    grid._type = "1"
+    grid._t1_rows = [
+        {"id": "123456789", "type": "1", "date": "16.6.2026"},  # a real, valid row
+        {"id": "", "type": "1", "date": ""},                    # inherited-type seed
+    ]
+    assert len(grid._t1_filled()) == 1, "type-only seed must not count as a row"
+    assert not grid.invalid_reasons(), grid.invalid_reasons()
+    assert grid.to_source() is not None, "a valid batch + empty seed must still run"
+
+    # A seed with nothing picked yet is empty too (no סוג inherited).
+    grid._t1_rows = [{"id": "", "type": "", "date": ""}]
+    assert grid.is_empty(), "all-empty grid must read as empty"
 
 
 def main() -> None:
@@ -36,6 +57,8 @@ def main() -> None:
     ]
     assert _recipe_chips("6") == [("report", "דיווח: פעילות")]
     assert _recipe_chips("7") is None  # unknown code → no chips (paste guard)
+
+    check_type_only_seed_is_ignored()
 
     print("OK: TYPE1_RECIPES invariants hold")
 

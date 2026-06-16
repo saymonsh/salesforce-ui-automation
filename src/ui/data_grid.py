@@ -361,14 +361,13 @@ class DataGridView:
         self._emit_change()
 
     def _apply_type_to_all(self, code: str) -> None:
-        """Set every non-empty TYPE 1 row's סוג to ``code`` — a homogeneous batch
-        in one click. Skips the trailing empty seed so it doesn't turn into a
-        phantom (id-less) row."""
+        """Set every TYPE 1 row's סוג to ``code`` — a homogeneous batch in one
+        click. The trailing empty seed gets it too (so the whole batch shows one
+        type), which is safe now that a type-only row is ignored by _t1_filled."""
         if code not in TYPE1_RECIPES:
             return
         for r in self._t1_rows:
-            if any((r.get(k) or "").strip() for k in ("id", "type", "date")):
-                r["type"] = code
+            r["type"] = code
         self._last_t1_type = code
         self._render_body()
         self._body.update()
@@ -743,7 +742,11 @@ class DataGridView:
 
     # ------------------------------------------------------------------- queries
     def _t1_filled(self) -> list[dict]:
-        return [r for r in self._t1_rows if any((r.get(k) or "").strip() for k in ("id", "type", "date"))]
+        # A row "counts" only once it has an id or date. A type-only row is the
+        # inherited-type seed (see _new_t1_row) — it must stay ignorable like a
+        # fully-empty row, or the trailing seed would be flagged as a פגומה row
+        # and block the run after the first סוג pick.
+        return [r for r in self._t1_rows if any((r.get(k) or "").strip() for k in ("id", "date"))]
 
     def _t2_filled(self) -> list[dict]:
         return [r for r in self._t2_rows if (r.get("id") or "").strip()]
