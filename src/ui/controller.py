@@ -32,7 +32,6 @@ class Controller:
             on_run=self.on_run_click,
             on_stop=self.on_stop_click,
             on_settings=self.on_setting_click,
-            on_help=self.on_help_click,
             on_close_handoff=self.close_handoff,
         )
 
@@ -42,9 +41,6 @@ class Controller:
         dm, self._handoff_dm = self._handoff_dm, None
         if dm is not None:
             dm.close_driver()
-
-    def on_help_click(self, _event=None):
-        self.main_view.show_help_dialog()
 
     def on_setting_click(self, _event=None):
         self.settings_controller.open_settings()

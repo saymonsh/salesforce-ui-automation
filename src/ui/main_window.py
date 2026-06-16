@@ -19,7 +19,6 @@ from src.core.config import config_instance as parm
 from src.core.status_messages import Status
 from src.core.utils import ltr_isolate
 from src.ui.data_grid import DataGridView
-from src.ui.help_dialog import create_help_dialog
 from src.ui.theme import Color, Font, Radius, Space, Term, Type, apply_theme
 
 # Map a debug-channel severity to its feed line color (the macOS terminal).
@@ -238,7 +237,6 @@ class MainView:
         self._type_value = str(parm.TYPE) if parm.TYPE is not None else ""
 
         # --- Chrome (topbar icons + window controls) ----------------------------
-        self.help_button = ft.IconButton(ft.Icons.INFO_OUTLINE_ROUNDED, icon_color=Color.TEXT_SECONDARY, tooltip="עזרה")
         self.settings_button = ft.IconButton(ft.Icons.SETTINGS_ROUNDED, icon_color=Color.TEXT_SECONDARY, tooltip="הגדרות")
 
         self.win_min = ft.IconButton(
@@ -647,7 +645,7 @@ class MainView:
                     ft.Image(src="/icons/kivun_mark.svg", width=34, height=34),
                     ft.Text("כיוון", size=20, weight=ft.FontWeight.W_700, color=Color.BRAND),
                 ]),
-                ft.Row(spacing=Space.XS, controls=[self.feed_button, self.settings_button, self.help_button]),
+                ft.Row(spacing=Space.XS, controls=[self.feed_button, self.settings_button]),
             ],
         )
         return ft.Container(
@@ -846,7 +844,7 @@ class MainView:
         return (x, y, w, h)
 
     def _any_dialog_open(self) -> bool:
-        """True while any Flet dialog (settings, grid, feed, alert, help) is on
+        """True while any Flet dialog (settings, grid, feed, alert) is on
         screen. The owned Chrome overlay is a top-level OS window that paints OVER
         in-app dialogs — it can't be clipped — so while a dialog is up the overlay
         must hide, or it masks the dialog and the app looks frozen behind it (#5).
@@ -962,12 +960,11 @@ class MainView:
         elif self._on_run:
             self._on_run(e)
 
-    def bind_actions(self, on_run, on_stop, on_settings, on_help, on_close_handoff=None) -> None:
+    def bind_actions(self, on_run, on_stop, on_settings, on_close_handoff=None) -> None:
         self._on_run = on_run
         self._on_stop = on_stop
         self._on_close_handoff = on_close_handoff
         self.settings_button.on_click = on_settings
-        self.help_button.on_click = on_help
 
     def set_status(self, text: str, level: str | None = None) -> None:
         """Updates the hero state/caption only. The feed shows real terminal output."""
@@ -1406,10 +1403,6 @@ class MainView:
             btn, ft.Icons.CHECK_ROUNDED, Color.SUCCESS, "הועתק!",
             ft.Icons.CONTENT_COPY_ROUNDED, "העתק ת.ז.", rest_color=Color.TEXT_SECONDARY,
         )
-
-    def show_help_dialog(self) -> None:
-        self.page.show_dialog(create_help_dialog(self.page))
-        self._safe_update()
 
     def _close_dialog(self, dialog: ft.AlertDialog) -> None:
         dialog.open = False

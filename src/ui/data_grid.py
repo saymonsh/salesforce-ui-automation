@@ -312,21 +312,64 @@ class DataGridView:
                 ft.Icon(ft.Icons.ARROW_DROP_DOWN_ROUNDED, size=18, color=Color.TEXT_TERTIARY),
             ]),
         )
-        items = [
-            ft.PopupMenuItem(
+        # The menu renders as an LTR overlay (outside the dialog's RTL). Every
+        # item uses the same shape: a fixed-width number column on the LEFT, and
+        # an expand container on the RIGHT whose inner row is END-aligned so the
+        # content is right-flush and bounded (wraps instead of bleeding out).
+        def _menu_item(left, right_controls, **kw):
+            return ft.PopupMenuItem(
+                padding=ft.padding.symmetric(horizontal=10, vertical=10),  # vertical breathing room
                 content=ft.Row(spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
-                    ft.Container(expand=True, content=self._chips(_recipe_chips(c))),
-                    ft.Text(f"סוג {c}", size=Type.CAPTION[0], color=Color.TEXT_TERTIARY),
+                    ft.Container(width=48, content=left),
+                    ft.Container(expand=True, alignment=ft.Alignment.CENTER_RIGHT,
+                                 content=ft.Row(spacing=6, wrap=True, run_spacing=6, tight=True,
+                                                alignment=ft.MainAxisAlignment.END,
+                                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                controls=right_controls)),
                 ]),
+                **kw,
+            )
+
+        items = [
+            _menu_item(
+                ft.Text(f"סוג {c}", size=Type.CAPTION[0], color=Color.TEXT_TERTIARY),
+                [self._chip(k, t) for k, t in _recipe_chips(c)],
                 on_click=lambda _e, c=c: self._set_type(row, c),
             )
             for c in TYPE1_RECIPES
         ]
+        # Footer: apply this row's סוג to every (non-empty) row — for a batch
+        # that's all one type. Disabled until the row has a valid code to copy.
+        has_code = code in TYPE1_RECIPES
+        accent = Color.BRAND if has_code else Color.TEXT_TERTIARY
+        items.append(ft.PopupMenuItem())  # divider
+        items.append(_menu_item(
+            None,
+            [ft.Text("החל סוג זה על כל השורות", size=Type.CAPTION[0], color=accent),
+             ft.Icon(ft.Icons.DONE_ALL_ROUNDED, size=16, color=accent)],
+            disabled=not has_code,
+            on_click=lambda _e: self._apply_type_to_all(code),
+        ))
         return ft.PopupMenuButton(content=field, items=items, rtl=True, padding=0)
 
     def _set_type(self, row: dict, code: str) -> None:
         row["type"] = code
         self._last_t1_type = code  # new rows inherit this pick
+        self._render_body()
+        self._body.update()
+        self._refresh_summary()
+        self._emit_change()
+
+    def _apply_type_to_all(self, code: str) -> None:
+        """Set every non-empty TYPE 1 row's סוג to ``code`` — a homogeneous batch
+        in one click. Skips the trailing empty seed so it doesn't turn into a
+        phantom (id-less) row."""
+        if code not in TYPE1_RECIPES:
+            return
+        for r in self._t1_rows:
+            if any((r.get(k) or "").strip() for k in ("id", "type", "date")):
+                r["type"] = code
+        self._last_t1_type = code
         self._render_body()
         self._body.update()
         self._refresh_summary()

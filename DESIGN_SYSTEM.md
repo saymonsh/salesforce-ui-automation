@@ -132,7 +132,7 @@ card(ft.Column([...]))                          # משטח לבן, elevation=2, 
 | `src/ui/main_window.py` | ✅ `apply_theme(page)` (RTL); כפתורי `primary/danger/secondary`; sidebar בימין; ניווט = כפתור focusable; מצב סטטוס SUCCESS; אזור לוג כהה עם placeholder |
 | `src/ui/settings_window.py` | ✅ `text_field` + `heading` + `primary_button`; `text_align=RIGHT` הוסר (RTL גלובלי) |
 | `src/ui/components/progress_bar.py` | ✅ `Color.BRAND` + `Color.BORDER` + `Type` |
-| `src/ui/help_dialog.py` | ✅ הפלטה הכחולה הוחלפה ב-`BRAND_TINT`/ניטרליים |
+| `src/ui/data_grid.py` | ✅ צ'יפים של בורר ה-`סוג` (`CHIP_PLAN_FG`/`CHIP_REPORT_FG`) |
 | `src/ui/controller.py` | ✅ מעביר `level="success"/"error"` ל-`set_status` |
 
 **נותר כ-follow-up:** שגיאות ולידציה inline פר-שדה (`error_text`) — דורש מיפוי של
