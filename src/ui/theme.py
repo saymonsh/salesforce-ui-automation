@@ -2,7 +2,7 @@
 Kivun design system — single source of truth for the Flet UI.
 
 Import tokens (Color/Space/Radius/Type) and the component factories
-(primary_button, text_field, card, ...) instead of hardcoding hex/sizes
+(primary_button, text_field, ...) instead of hardcoding hex/sizes
 in the views. Call apply_theme(page) once at startup to wire RTL, the
 default Hebrew font, and the global Flet theme.
 
@@ -105,11 +105,6 @@ class Radius:
     PILL = 999
 
 
-class Elevation:
-    CARD = 2
-    DIALOG = 6
-
-
 class Font:
     # Primary Hebrew UI font (loaded in apply_theme). Falls back to the
     # system default (Segoe UI on Windows handles Hebrew well) if the
@@ -200,26 +195,6 @@ def primary_button(text: str, icon=None, **kwargs) -> ft.FilledButton:
     )
 
 
-def secondary_button(text: str, icon=None, **kwargs) -> ft.OutlinedButton:
-    """Supporting action. Outlined, neutral."""
-    return ft.OutlinedButton(
-        text,
-        icon=icon,
-        style=_button_style(None, Color.TEXT_SECONDARY, ft.BorderSide(1, Color.BORDER_STRONG)),
-        **kwargs,
-    )
-
-
-def danger_button(text: str, icon=None, **kwargs) -> ft.FilledButton:
-    """Destructive / stop action. Solid red so it is clearly visible."""
-    return ft.FilledButton(
-        text,
-        icon=icon,
-        style=_button_style(Color.DANGER, Color.TEXT_ON_BRAND),
-        **kwargs,
-    )
-
-
 def text_field(label: str, value: str = "", **kwargs) -> ft.TextField:
     """Standard form input. RTL alignment comes from page.rtl — no per-field patch."""
     return ft.TextField(
@@ -298,12 +273,3 @@ class SegmentedSelect:
             seg.bgcolor = Color.BRAND if selected else ft.Colors.TRANSPARENT
             seg.content.color = Color.TEXT_ON_BRAND if selected else Color.TEXT_SECONDARY
             seg.content.weight = ft.FontWeight.W_700 if selected else ft.FontWeight.W_600
-
-
-def card(content: ft.Control, padding: int = Space.XL) -> ft.Card:
-    """Elevated white surface for grouping content."""
-    return ft.Card(
-        elevation=Elevation.CARD,
-        bgcolor=Color.SURFACE,
-        content=ft.Container(padding=padding, content=content),
-    )

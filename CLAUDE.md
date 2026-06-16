@@ -64,7 +64,7 @@ Three layers, strictly separated:
   - call `verify_running(check_stop)` / `self.check_for_stop()` between steps
 
   These poll a `threading.Event` and raise `StopRequestedException` so the user's Stop button takes effect mid-flight (including during long waits). Processors thread the stop check through as `check_stop_func=lambda: self.is_stopped`.
-- **The owned-overlay embedding has validated invariants** (`win_window.py`, issue #19 — verified by `spikes/reparent_spike.py`):
+- **The owned-overlay embedding has validated invariants** (`win_window.py`, issue #19):
   - Use the **owner** relationship (`GWLP_HWNDPARENT`), never `SetParent`/`WS_CHILD` — true reparenting breaks keyboard input across processes and `AttachThreadInput` doesn't rescue it.
   - Never `SW_HIDE` Chrome while a page may be loading — it stalls the load ("stuck loading"). To get it out of the way, **park it off-screen** (the tracker does this when `rect_provider()` returns None).
   - Don't maximize the automation Chrome and keep `--force-device-scale-factor=1`: OS display scaling shrinks the CSS viewport below Lightning's ~1024px desktop breakpoint, breaking the tuned selectors with `ElementClickIntercepted`.

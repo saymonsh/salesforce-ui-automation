@@ -1,5 +1,5 @@
 """Win32 toolkit to embed the automation Chrome window inside the Flet app
-(issue #19, "owned-overlay" approach — validated by spikes/reparent_spike.py).
+(issue #19, "owned-overlay" approach).
 
 Why this and not the CDP screencast it replaces: the screencast was a blurry
 JPEG mirror that also forced us to hide the real Chrome (mirror + off-screen +

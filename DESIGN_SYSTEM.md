@@ -90,9 +90,8 @@ body_text("מוכן", Type.BODY_LG, Color.TEXT_SECONDARY)
 |---------|--------|
 | `Space` (בסיס 4px) | `XS=4` · `SM=8` · `MD=12` · `LG=16` · `XL=20` · `XXL=24` · `XXXL=32` |
 | `Radius` | `SM=6` · `MD=8` (ברירת מחדל) · `LG=12` · `PILL=999` |
-| `Elevation` | `CARD=2` · `DIALOG=6` |
 
-מרווח רכיבים סטנדרטי: `Space.XL` (20) ל-padding של כרטיסים/כפתורים, `Space.LG`/`MD` בין רכיבים.
+מרווח רכיבים סטנדרטי: `Space.XL` (20) ל-padding של כפתורים, `Space.LG`/`MD` בין רכיבים.
 
 ---
 
@@ -104,10 +103,8 @@ body_text("מוכן", Type.BODY_LG, Color.TEXT_SECONDARY)
 | וריאנט | פונקציה | מתי |
 |--------|----------|-----|
 | Primary | `primary_button("הפעל", icon=...)` | פעולה ראשית, אחת למסך. מילוי מותג, טקסט לבן |
-| Secondary | `secondary_button("בחר קובץ", icon=...)` | פעולה תומכת. מתאר ניטרלי |
-| Danger | `danger_button("עצור תהליך", icon=...)` | הרסני/עצירה. אדום מלא — **בולט, לא ורוד-חלש** |
 
-כולם: רדיוס `MD`, padding `XL`. מצבים: default / hover (כהה יותר) / disabled (עמעום Flet).
+רדיוס `MD`, padding `XL`. מצבים: default / hover (כהה יותר) / disabled (עמעום Flet).
 
 ### שדה טקסט
 ```python
@@ -115,11 +112,6 @@ text_field("USER_NAME", value=...)            # יישור RTL מ-page.rtl, בל
 text_field("PASSWORD", password=True, can_reveal_password=True)
 ```
 גבול `BORDER`, פוקוס `BRAND`, label ב-`TEXT_SECONDARY`.
-
-### כרטיס
-```python
-card(ft.Column([...]))                          # משטח לבן, elevation=2, padding XL
-```
 
 ---
 
