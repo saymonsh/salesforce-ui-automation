@@ -24,9 +24,18 @@ class CandidateProcessor(BaseProcessor):
         self._login(parm.URL)
 
         self.check_for_stop()
-        # Specific long path click from add_candidats.py
-        init_btn = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_INITIAL_BUTTON, check_stop_func=lambda: self.is_stopped)
-        init_btn.click()
+        # Optional initial "next Step" button: some versions of the Salesforce
+        # action open straight onto the search screen (no intermediate button),
+        # and the wrapping LWC component has been renamed across releases. Click it
+        # if present, otherwise carry on. Short timeout so an absent button doesn't
+        # stall the run for the full 30s.
+        try:
+            init_btn = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_INITIAL_BUTTON, timeout=8, check_stop_func=lambda: self.is_stopped)
+            init_btn.click()
+        except StopRequestedException:
+            raise
+        except Exception:
+            logger.info("initial 'next Step' button not found — assuming search is already shown", stage="candidate")
 
         total = len(rows)
         if self.signals:
