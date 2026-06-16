@@ -27,9 +27,12 @@ class LoginProcessor(BaseProcessor):
         if self.signals:
             self.signals.started.emit(total)
 
-        # Rows that errored mid-run (סוג 2-6 only — סוג 1 aborts the whole run).
-        # Collected instead of silently swallowed so the completion summary reports
-        # them honestly rather than counting a failed row as "processed".
+        # Rows that errored mid-run (any סוג). A single bad ID — e.g. one not found
+        # by perform_search — is skipped and recorded here so the run continues to
+        # the remaining rows instead of aborting; the completion dialog lists them
+        # honestly rather than counting a failed row as "processed". perform_search
+        # starts each row with driver.refresh(), so the page self-resets between
+        # rows and a mid-row failure doesn't poison the next one.
         failed: list[tuple] = []
 
         for index, row in enumerate(rows):
@@ -70,13 +73,7 @@ class LoginProcessor(BaseProcessor):
             except StopRequestedException:
                 raise # Re-raise to be caught by outer try-except in worker.py
             except Exception as e:
-                # Check if stopped - if so, this exception might be due to driver close
-                if isinstance(e, StopRequestedException):
-                    raise e
-
                 logger.error(f"failed for id {id_number}: {e}", stage="run", row=n, exc=True)
-                if row['סוג'] == 1:
-                    raise Exception("Critical Failure: Type 1 processing failed.")
                 failed.append((id_number, str(e)))
 
             if self.signals:

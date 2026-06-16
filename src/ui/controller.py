@@ -187,11 +187,21 @@ class Controller:
             # separate card.
             if summary:
                 problems = summary.get("problem_ids") or []
-                self.main_view.show_alert(
-                    Status.COMPLETED_TITLE, Status.completion_body(summary), "success",
-                    copy_text="\n".join(str(x) for x in problems) if problems else None,
-                    # Dismissing the completion dialog returns the hero to 'מוכן' —
-                    # closing 'הושלם' readies the screen for the next run.
-                    on_closed=self.main_view.reset_to_idle,
-                )
+                copy_text = "\n".join(str(x) for x in problems) if problems else None
+                if self._handoff_dm is not None:
+                    # TYPE 2 ended in handoff: the browser is still embedded for the
+                    # operator's manual step. Don't cover it — arm the skipped-IDs
+                    # dialog to fire once they click "סיימתי" (close the browser).
+                    self.main_view.arm_handoff_summary(
+                        Status.COMPLETED_TITLE, Status.completion_body(summary), "success",
+                        copy_text,
+                    )
+                else:
+                    self.main_view.show_alert(
+                        Status.COMPLETED_TITLE, Status.completion_body(summary), "success",
+                        copy_text=copy_text,
+                        # Dismissing the completion dialog returns the hero to 'מוכן' —
+                        # closing 'הושלם' readies the screen for the next run.
+                        on_closed=self.main_view.reset_to_idle,
+                    )
 

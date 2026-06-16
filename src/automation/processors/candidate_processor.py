@@ -32,35 +32,55 @@ class CandidateProcessor(BaseProcessor):
         if self.signals:
             self.signals.started.emit(total)
 
+        # IDs skipped mid-run (e.g. not found among the search results). One bad ID
+        # is recorded here and skipped instead of aborting the whole run; the
+        # completion dialog lists them (same mechanism as TYPE 1).
+        failed: list[tuple] = []
+
         for index, row in enumerate(rows):
             self.check_for_stop()
 
             id_number = row['תעודות זהות']
-
-            id_number = int(id_number)
             n = index + 1
             logger.set_context(stage="candidate", row=n)
             self.update_ui(status=Status.t2_processing(n, total, id_number))
             logger.info(f"adding candidate id {id_number}", stage="candidate", row=n)
-            self.check_for_stop()
-            
-            pyperclip.copy(str(id_number))
-            search = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_ID_INPUT, check_stop_func=lambda: self.is_stopped)
-            search.click()
-            self.check_for_stop()
-            
-            search.clear()
-            search.send_keys(Keys.CONTROL, 'v')
-            self.check_for_stop()
-            
-            add_id = interruptible_find_element(self.driver, By.XPATH,
-                                         S.CANDIDATE_CHECKBOX_TEMPLATE.format(id_number=id_number), check_stop_func=lambda: self.is_stopped)
-            self.driver.execute_script("arguments[0].click();", add_id)
-            
-            self.check_for_stop()
-            clear = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_ID_INPUT, check_stop_func=lambda: self.is_stopped)
-            clear.clear()
-            
+
+            try:
+                id_int = int(id_number)
+                self.check_for_stop()
+
+                pyperclip.copy(str(id_int))
+                search = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_ID_INPUT, check_stop_func=lambda: self.is_stopped)
+                search.click()
+                self.check_for_stop()
+
+                search.clear()
+                search.send_keys(Keys.CONTROL, 'v')
+                self.check_for_stop()
+
+                add_id = interruptible_find_element(self.driver, By.XPATH,
+                                             S.CANDIDATE_CHECKBOX_TEMPLATE.format(id_number=id_int), check_stop_func=lambda: self.is_stopped)
+                self.driver.execute_script("arguments[0].click();", add_id)
+
+                self.check_for_stop()
+                clear = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_ID_INPUT, check_stop_func=lambda: self.is_stopped)
+                clear.clear()
+            except StopRequestedException:
+                raise
+            except Exception as e:
+                # Skip this ID and move to the next: clear the ID still sitting in
+                # the search field (so it doesn't bleed into the next row), record
+                # the failure, and carry on. Best-effort clear — if even that fails,
+                # the next row's own clear()/paste recovers.
+                logger.error(f"failed to add candidate {id_number}: {e}", stage="candidate", row=n, exc=True)
+                failed.append((id_number, str(e)))
+                try:
+                    box = interruptible_find_element(self.driver, By.XPATH, S.CANDIDATE_ID_INPUT, check_stop_func=lambda: self.is_stopped)
+                    box.clear()
+                except Exception:
+                    pass
+
             if self.signals:
                 self.signals.item_processed.emit()
 
@@ -69,4 +89,14 @@ class CandidateProcessor(BaseProcessor):
         # Keep Chrome open so the operator can complete that step (the worker
         # detaches instead of closing the driver when this flag is set).
         self.keep_browser_open = True
-        self.update_ui(status=Status.t2_done(total), level="warning")
+        self.update_ui(status=Status.t2_done(total - len(failed)), level="warning")
+
+        # Surface skipped IDs in the completion dialog (reuses the TYPE 1 summary
+        # shape). Only when something failed — a clean run stays handoff-only, with
+        # no dialog, exactly as before.
+        if failed:
+            return {
+                "success_text": Status.t2_summary(total - len(failed)),
+                "problems_title": Status.missing_ids_title(len(failed)),
+                "problem_ids": [str(i) for i, _ in failed],
+            }

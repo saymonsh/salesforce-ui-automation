@@ -103,6 +103,12 @@ class Status:
         return f"מוסיף מועמד {_iso(n)} מתוך {_iso(total)} — ת.ז. {_iso(id_number)}"
 
     @staticmethod
+    def t2_summary(ok: int) -> str:
+        # Success line for the completion dialog when some candidates were skipped
+        # (counts only those actually added; skipped IDs are listed separately).
+        return f"{_iso(ok)} מועמדים נוספו בהצלחה"
+
+    @staticmethod
     def t2_done(total: int) -> str:
         # The run ends in the 'action required' state with Chrome left open
         # (embedded in the panel) so the operator can finish the manual save, then
@@ -150,4 +156,12 @@ if __name__ == "__main__":
     })
     assert "9" in partial and "נכשלו" in partial, partial
     assert "311111111" in partial and "305554321" in partial, partial
+
+    # TYPE 2 partial run: skipped candidates listed via the shared problem block.
+    t2 = Status.completion_body({
+        "success_text": Status.t2_summary(4),
+        "problems_title": Status.missing_ids_title(1),
+        "problem_ids": ["322222222"],
+    })
+    assert "4" in t2 and "נוספו" in t2 and "322222222" in t2, t2
     print("OK — completion_body builds clean + partial run summaries")

@@ -115,6 +115,12 @@ class MainView:
         # but the window lives) so the manual step is finished inside the app.
         self._browser_handoff = False
         self.browser_close_btn = None  # built with the browser panel
+        # A TYPE 2 run that skipped some IDs arms its completion dialog here instead
+        # of showing it immediately: popping it over the still-embedded browser would
+        # cover the manual step the operator is finishing. It fires once they click
+        # "סיימתי" (see arm_handoff_summary / _close_handoff_browser). Tuple of
+        # show_alert args, or None when nothing was skipped.
+        self._handoff_summary = None
         # Per-monitor-DPI-aware so our Win32 geometry matches Flutter's pixels.
         set_process_dpi_aware()
 
@@ -780,6 +786,14 @@ class MainView:
             self.browser_close_btn.visible = True
         self._safe_update()
 
+    def arm_handoff_summary(self, *show_alert_args) -> None:
+        """Defer a TYPE 2 completion dialog until the handoff browser is closed.
+
+        Called by the controller when a TYPE 2 run skipped some IDs: instead of
+        covering the browser the operator is still using, the dialog is held and
+        fired from _close_handoff_browser once they click "סיימתי"."""
+        self._handoff_summary = show_alert_args
+
     def _close_handoff_browser(self, _e=None) -> None:
         """Panel close button: shut the handoff Chrome, fold the panel away, and
         return the main action button to its idle 'waiting' state."""
@@ -799,6 +813,11 @@ class MainView:
         # set_running(False) re-renders the button to the idle ▶, folds the panel,
         # and unlocks edits.
         self.set_running(False)
+        # Now that the browser is gone, surface any IDs the run skipped (armed at
+        # finish). show_alert calls _safe_update itself.
+        if self._handoff_summary is not None:
+            args, self._handoff_summary = self._handoff_summary, None
+            self.show_alert(*args)
 
     def _stop_browser_overlay(self) -> None:
         """Stop tracking the overlay (Chrome is about to be closed by the driver)."""
@@ -868,6 +887,8 @@ class MainView:
                 overlay, self._overlay = self._overlay, None
                 if overlay is not None:
                     overlay.stop()
+            # A new run supersedes any handoff summary that was never opened.
+            self._handoff_summary = None
             self.reset_browser()
             self._browser_panel.visible = True
             if row is not None:
