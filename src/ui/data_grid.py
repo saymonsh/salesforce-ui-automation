@@ -48,6 +48,38 @@ from src.ui.theme import Color, Font, Radius, Space, Type
 
 _CELL_BORDER = ft.Colors.with_opacity(0.6, "#ffffff")
 
+# Single source of truth for the TYPE 1 "סוג" column. Decoded from the engine
+# (`actions.py` — which checkboxes create_actions/create_report tick): each סוג
+# 1–6 plans and/or reports two services. The picker AND the closed-cell chips
+# are *derived* from this table (see `_recipe_chips`), so display can't drift
+# from the stored code. Storage stays the int-like string "1".."6" — only the
+# operator-facing presentation changed. Invariants are guarded by
+# tests/test_type1_recipes.py.
+#   service keys: "act" = פעילות (ACT_NU) · "pp" = תוכנית אישית (row 8 in SF)
+_SVC_LABEL = {"act": "פעילות", "pp": "תוכנית אישית"}
+TYPE1_RECIPES = {
+    "1": {"plan": ["act", "pp"], "report": ["pp"]},
+    "2": {"plan": ["act", "pp"], "report": []},
+    "3": {"plan": [],            "report": ["pp"]},
+    "4": {"plan": ["act"],       "report": ["pp"]},
+    "5": {"plan": ["act"],       "report": []},
+    "6": {"plan": [],            "report": ["act"]},
+}
+
+
+def _recipe_chips(code: str):
+    """(kind, text) chips for a סוג code, grouped by verb (one chip per verb),
+    or None if the code isn't a known recipe. kind ∈ {"plan", "report"}."""
+    rec = TYPE1_RECIPES.get(code)
+    if not rec:
+        return None
+    chips = []
+    if rec["plan"]:
+        chips.append(("plan", "תכנון: " + ", ".join(_SVC_LABEL[s] for s in rec["plan"])))
+    if rec["report"]:
+        chips.append(("report", "דיווח: " + ", ".join(_SVC_LABEL[s] for s in rec["report"])))
+    return chips
+
 
 class DataGridView:
     """Holds the manual-entry model for the current TYPE and builds its editor.
@@ -63,6 +95,10 @@ class DataGridView:
         self._on_change = on_change
         self._on_save = on_save      # host hook for the "שמור וסגור" toolbar button
         self._type = "1"
+        # The last סוג picked in the TYPE 1 grid — a new row inherits it, so a
+        # homogeneous batch is one pick instead of one-per-row (mixed batches
+        # just change the few exceptions).
+        self._last_t1_type = ""
 
         # Independent per-TYPE models, each seeded with one empty row.
         self._t1_rows: list[dict] = [self._new_t1_row()]
@@ -78,9 +114,8 @@ class DataGridView:
         self._note_text: Optional[ft.Text] = None  # inline smart-paste feedback line
 
     # ----------------------------------------------------------------- model rows
-    @staticmethod
-    def _new_t1_row() -> dict:
-        return {"id": "", "type": "", "date": ""}
+    def _new_t1_row(self) -> dict:
+        return {"id": "", "type": self._last_t1_type, "date": ""}
 
     @staticmethod
     def _new_t2_row() -> dict:
@@ -174,7 +209,7 @@ class DataGridView:
         return ft.Column(spacing=Space.XS, expand=True, controls=[context, grid])
 
     def _render_tabular(self, keys, labels, rows, factory) -> ft.Control:
-        widths = {"id": 180, "type": 110, "date": 180}
+        widths = {"id": 170, "type": 420, "date": 170}
 
         # Column header strip.
         head_cells: list[ft.Control] = [
@@ -207,8 +242,12 @@ class DataGridView:
             self._toolbar(add_btn, self._paste_button(), self._clear_button()),
         ])
 
-    def _tabular_cell(self, row: dict, key: str, width: int) -> ft.TextField:
-        hint = {"id": "מספר זהות", "type": "1–6", "date": "d.m.yyyy"}[key]
+    def _tabular_cell(self, row: dict, key: str, width: int) -> ft.Control:
+        # TYPE 1's "סוג" is a recipe picker, not a free-text number — the
+        # operator chooses meaning, the int-like code is stored under it.
+        if key == "type":
+            return self._type_picker_cell(row, width)
+        hint = {"id": "מספר זהות", "date": "d.m.yyyy"}[key]
         field = ft.TextField(
             value=row.get(key, ""), width=width, hint_text=hint,
             text_size=Type.BODY[0], dense=True, content_padding=Space.SM,
@@ -223,6 +262,75 @@ class DataGridView:
         field.on_blur = lambda e, r=row, k=key, f=field: self._validate_cell(r, k, f)
         self._style_cell(field, self._cell_ok(key, row.get(key, "")))
         return field
+
+    # --- TYPE 1 "סוג" recipe picker ----------------------------------------
+    @staticmethod
+    def _chip(kind: str, text: str) -> ft.Control:
+        plan = kind == "plan"
+        return ft.Container(
+            bgcolor=Color.CHIP_PLAN_BG if plan else Color.CHIP_REPORT_BG,
+            border_radius=Radius.PILL,
+            padding=ft.padding.symmetric(horizontal=8, vertical=2),
+            content=ft.Text(text, size=Type.CAPTION[0], weight=ft.FontWeight.W_600,
+                            color=Color.CHIP_PLAN_FG if plan else Color.CHIP_REPORT_FG),
+        )
+
+    @staticmethod
+    def _chips(chips) -> ft.Control:
+        # Pills side by side on one line — the column is wide enough to fit them
+        # (option C). wrap is a safety net only; normally one line.
+        return ft.Row(spacing=5, wrap=True, run_spacing=3, tight=True,
+                      controls=[DataGridView._chip(k, t) for k, t in chips])
+
+    def _type_picker_cell(self, row: dict, width: int) -> ft.Control:
+        """Popup-menu cell for the סוג column: a full-width select-style field
+        with the recipe's pills on one line and a chevron at the (left) edge —
+        uniform height across rows (option C). A floating ``PopupMenuButton`` is
+        used, not a ``Dropdown`` (Flet 0.84 dropdowns have no blur, see
+        flet-ui-gotchas)."""
+        code = (row.get("type") or "").strip()
+        chips = _recipe_chips(code)
+        if chips:                       # known recipe → pills on one line
+            display, ok, tip = self._chips(chips), True, f"סוג {code}"
+        elif not code:                  # empty → placeholder
+            display = ft.Text("בחר פעולה", size=Type.BODY[0], color=Color.TEXT_TERTIARY)
+            ok, tip = True, None
+        else:                           # non-empty but not 1–6 (e.g. from paste)
+            display = ft.Text(f"סוג {ltr_isolate(code)}?", size=Type.BODY[0], color=Color.DANGER)
+            ok, tip = False, "ערך לא תקין — בחר סוג מהרשימה"
+
+        # Full-width field matching the id/date cells: pills hug the right, chevron
+        # at the left edge (SPACE_BETWEEN). Single line, so heights stay uniform.
+        field = ft.Container(
+            width=width, border_radius=Radius.SM, tooltip=tip,
+            padding=ft.padding.symmetric(horizontal=Space.SM, vertical=6),
+            border=ft.border.all(1, _CELL_BORDER if ok else Color.DANGER),
+            bgcolor=ft.Colors.with_opacity(0.5, "#ffffff"),
+            content=ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+                display,
+                ft.Icon(ft.Icons.ARROW_DROP_DOWN_ROUNDED, size=18, color=Color.TEXT_TERTIARY),
+            ]),
+        )
+        items = [
+            ft.PopupMenuItem(
+                content=ft.Row(spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+                    ft.Container(expand=True, content=self._chips(_recipe_chips(c))),
+                    ft.Text(f"סוג {c}", size=Type.CAPTION[0], color=Color.TEXT_TERTIARY),
+                ]),
+                on_click=lambda _e, c=c: self._set_type(row, c),
+            )
+            for c in TYPE1_RECIPES
+        ]
+        return ft.PopupMenuButton(content=field, items=items, rtl=True, padding=0)
+
+    def _set_type(self, row: dict, code: str) -> None:
+        row["type"] = code
+        self._last_t1_type = code  # new rows inherit this pick
+        self._render_body()
+        self._body.update()
+        self._refresh_summary()
+        self._emit_change()
 
     def _store(self, target: dict, key: str, value: str) -> None:
         """Commit a keystroke to the model without touching the view."""
@@ -726,6 +834,9 @@ class DataGridView:
                 {"id": str(r.get("id", "")), "type": str(r.get("type", "")), "date": str(r.get("date", ""))}
                 for r in t1 if isinstance(r, dict)
             ]
+            valid_types = [r["type"] for r in rows if r["type"] in TYPE1_RECIPES]
+            if valid_types:
+                self._last_t1_type = valid_types[-1]  # a fresh row inherits it
             self._t1_rows = rows or [self._new_t1_row()]
 
         t2 = state.get("t2")
