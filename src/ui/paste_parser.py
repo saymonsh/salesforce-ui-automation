@@ -19,8 +19,7 @@ Two shapes, matching the grid's two families:
     columns are reported, never fatal.
   * **matrix** (TYPE 3) → :func:`parse_matrix`: ``HH:MM|HH:MM`` times in the
     top-left cell, dates across the rest of the first row, IDs down the first
-    column, any non-empty body cell = present — the exact convention of
-    :func:`ExcelParser.parse_attendance_matrix`.
+    column, any non-empty body cell = present — the attendance-sheet convention.
 """
 from __future__ import annotations
 
@@ -28,12 +27,12 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
-# Hebrew column keys the processors read — must match the Excel column headers.
+# Hebrew column keys the processors read — accessed by literal string.
 COL_ID = "תעודות זהות"
 COL_TYPE = "סוג"
 COL_DATE = "תאריך"
 
-# Attendance cell statuses, identical to ExcelParser.parse_attendance_matrix.
+# Attendance cell statuses the TYPE 3 matrix carries.
 PRESENT = "נוכח"
 ABSENT = "לא נוכח"
 
@@ -48,7 +47,7 @@ def digits(value: str) -> str:
 
 
 def id_valid(value: str) -> bool:
-    """Digits-only, 1–9 chars — matches today's Excel behavior (no check-digit)."""
+    """Digits-only, 1–9 chars — lenient (no Israeli check-digit)."""
     s = (value or "").strip()
     return s.isdigit() and 1 <= len(s) <= 9
 
@@ -60,7 +59,7 @@ def type_valid(value: str) -> bool:
 
 # Date styles accepted for a TYPE 3 matrix column and normalized to ISO. The
 # Israeli day-first styles (d.m.y / d/m/y / d-m-y, 2- or 4-digit year) plus ISO
-# itself — mirrors ExcelParser's pd.to_datetime(date, dayfirst=True).
+# itself — day-first, matching the Israeli date convention.
 _DATE_INPUT_FORMATS = (
     "%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y",
     "%d.%m.%y", "%d/%m/%y", "%d-%m-%y",

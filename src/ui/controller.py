@@ -32,7 +32,6 @@ class Controller:
             on_run=self.on_run_click,
             on_stop=self.on_stop_click,
             on_settings=self.on_setting_click,
-            on_help=self.on_help_click,
             on_close_handoff=self.close_handoff,
         )
 
@@ -43,9 +42,6 @@ class Controller:
         if dm is not None:
             dm.close_driver()
 
-    def on_help_click(self, _event=None):
-        self.main_view.show_help_dialog()
-
     def on_setting_click(self, _event=None):
         self.settings_controller.open_settings()
 
@@ -53,8 +49,8 @@ class Controller:
         self.worker_manager.stop()
 
     def on_run_click(self, _event=None):
-        # Input always comes from the in-app entry grid now (epic #14 / #18 —
-        # Excel is imported into the grid, never run directly).
+        # Input always comes from the in-app entry grid (epic #14 / #18) —
+        # typed or smart-pasted; there is no Excel-file input.
         source = self.main_view.get_manual_source()
         if source is None:
             return  # the grid is empty/invalid — main_view already alerted

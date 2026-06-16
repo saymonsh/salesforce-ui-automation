@@ -54,6 +54,12 @@ class Color:
     BACKGROUND = "#f4f4f4"     # page background
     SURFACE_INVERSE = "#1e1e1e"  # logs / terminal background
 
+    # TYPE 1 "סוג" recipe chips (data_grid type picker): plan=teal, report=amber.
+    CHIP_PLAN_BG = "#e1f5ee"
+    CHIP_PLAN_FG = "#0f6e56"     # AA on CHIP_PLAN_BG
+    CHIP_REPORT_BG = "#faeeda"
+    CHIP_REPORT_FG = "#854f0b"   # AA on CHIP_REPORT_BG
+
 
 class Term:
     """macOS-style terminal surface (the activity / debug feed).

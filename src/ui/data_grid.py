@@ -1,11 +1,10 @@
 """In-app manual-entry grid (issue #16, epic #14 step 2).
 
-An editable table whose columns are derived from ``config.TYPE``. It is the
-manual-entry counterpart to loading an Excel file: the user types/edits rows
-here, and :meth:`DataGridView.to_source` hands the worker the *same* unified data
-model the Excel path produces (issue #15) — a :class:`MemoryTabularSource`
-(TYPE 1/2) or :class:`MemoryMatrixSource` (TYPE 3). The processors can't tell the
-two input media apart.
+An editable table whose columns are derived from ``config.TYPE``. The user
+types (or smart-pastes, issue #17) rows here, and :meth:`DataGridView.to_source`
+hands the worker a :class:`MemoryTabularSource` (TYPE 1/2) or
+:class:`MemoryMatrixSource` (TYPE 3). The grid is the *only* input source —
+there is no Excel-file import.
 
 Design notes:
   * The backing model is plain Python data (lists of dicts of strings + bools),
@@ -14,9 +13,8 @@ Design notes:
   * Cells are ``TextField`` / ``Checkbox`` only — no ``Dropdown`` (Flet 0.84 has
     no dropdown blur, see the project memory). ``update()`` is only ever called
     from event handlers (post-mount), never during build.
-  * Validation is lenient by design and mirrors the Excel path: IDs are
-    digits-only ≤ 9 (no Israeli check-digit), TYPE 3 IDs are padded to 9 exactly
-    like ``ExcelParser.parse_attendance_matrix``, and TYPE 3 dates/times use the
+  * Validation is lenient by design: IDs are digits-only ≤ 9 (no Israeli
+    check-digit), TYPE 3 IDs are padded to 9, and TYPE 3 dates/times use the
     ``YYYY-MM-DD`` / ``HH:MM`` shapes ``AttendanceProcessor`` feeds to strptime.
 """
 from __future__ import annotations
@@ -41,7 +39,6 @@ from src.ui.paste_parser import (
     RE_TIME as _RE_TIME,
     digits as _digits,
     id_valid,
-    normalize_display_date,
     normalize_iso_date,
     parse_matrix,
     parse_tabular,
@@ -50,6 +47,38 @@ from src.ui.paste_parser import (
 from src.ui.theme import Color, Font, Radius, Space, Type
 
 _CELL_BORDER = ft.Colors.with_opacity(0.6, "#ffffff")
+
+# Single source of truth for the TYPE 1 "סוג" column. Decoded from the engine
+# (`actions.py` — which checkboxes create_actions/create_report tick): each סוג
+# 1–6 plans and/or reports two services. The picker AND the closed-cell chips
+# are *derived* from this table (see `_recipe_chips`), so display can't drift
+# from the stored code. Storage stays the int-like string "1".."6" — only the
+# operator-facing presentation changed. Invariants are guarded by
+# tests/test_type1_recipes.py.
+#   service keys: "act" = פעילות (ACT_NU) · "pp" = תוכנית אישית (row 8 in SF)
+_SVC_LABEL = {"act": "פעילות", "pp": "תוכנית אישית"}
+TYPE1_RECIPES = {
+    "1": {"plan": ["act", "pp"], "report": ["pp"]},
+    "2": {"plan": ["act", "pp"], "report": []},
+    "3": {"plan": [],            "report": ["pp"]},
+    "4": {"plan": ["act"],       "report": ["pp"]},
+    "5": {"plan": ["act"],       "report": []},
+    "6": {"plan": [],            "report": ["act"]},
+}
+
+
+def _recipe_chips(code: str):
+    """(kind, text) chips for a סוג code, grouped by verb (one chip per verb),
+    or None if the code isn't a known recipe. kind ∈ {"plan", "report"}."""
+    rec = TYPE1_RECIPES.get(code)
+    if not rec:
+        return None
+    chips = []
+    if rec["plan"]:
+        chips.append(("plan", "תכנון: " + ", ".join(_SVC_LABEL[s] for s in rec["plan"])))
+    if rec["report"]:
+        chips.append(("report", "דיווח: " + ", ".join(_SVC_LABEL[s] for s in rec["report"])))
+    return chips
 
 
 class DataGridView:
@@ -61,13 +90,15 @@ class DataGridView:
     """
 
     def __init__(self, page: ft.Page, on_change: Optional[Callable[[], None]] = None,
-                 on_import: Optional[Callable[[], None]] = None,
                  on_save: Optional[Callable[[], None]] = None):
         self.page = page
         self._on_change = on_change
-        self._on_import = on_import  # host hook for the "ייבא מ-Excel" toolbar button
         self._on_save = on_save      # host hook for the "שמור וסגור" toolbar button
         self._type = "1"
+        # The last סוג picked in the TYPE 1 grid — a new row inherits it, so a
+        # homogeneous batch is one pick instead of one-per-row (mixed batches
+        # just change the few exceptions).
+        self._last_t1_type = ""
 
         # Independent per-TYPE models, each seeded with one empty row.
         self._t1_rows: list[dict] = [self._new_t1_row()]
@@ -83,9 +114,8 @@ class DataGridView:
         self._note_text: Optional[ft.Text] = None  # inline smart-paste feedback line
 
     # ----------------------------------------------------------------- model rows
-    @staticmethod
-    def _new_t1_row() -> dict:
-        return {"id": "", "type": "", "date": ""}
+    def _new_t1_row(self) -> dict:
+        return {"id": "", "type": self._last_t1_type, "date": ""}
 
     @staticmethod
     def _new_t2_row() -> dict:
@@ -179,7 +209,7 @@ class DataGridView:
         return ft.Column(spacing=Space.XS, expand=True, controls=[context, grid])
 
     def _render_tabular(self, keys, labels, rows, factory) -> ft.Control:
-        widths = {"id": 180, "type": 110, "date": 180}
+        widths = {"id": 170, "type": 420, "date": 170}
 
         # Column header strip.
         head_cells: list[ft.Control] = [
@@ -209,11 +239,15 @@ class DataGridView:
         return ft.Column(spacing=Space.SM, expand=True, controls=[
             header,
             ft.Container(expand=True, content=rows_list),
-            self._toolbar(add_btn, self._paste_button(), self._import_button(), self._clear_button()),
+            self._toolbar(add_btn, self._paste_button(), self._clear_button()),
         ])
 
-    def _tabular_cell(self, row: dict, key: str, width: int) -> ft.TextField:
-        hint = {"id": "מספר זהות", "type": "1–6", "date": "d.m.yyyy"}[key]
+    def _tabular_cell(self, row: dict, key: str, width: int) -> ft.Control:
+        # TYPE 1's "סוג" is a recipe picker, not a free-text number — the
+        # operator chooses meaning, the int-like code is stored under it.
+        if key == "type":
+            return self._type_picker_cell(row, width)
+        hint = {"id": "מספר זהות", "date": "d.m.yyyy"}[key]
         field = ft.TextField(
             value=row.get(key, ""), width=width, hint_text=hint,
             text_size=Type.BODY[0], dense=True, content_padding=Space.SM,
@@ -228,6 +262,117 @@ class DataGridView:
         field.on_blur = lambda e, r=row, k=key, f=field: self._validate_cell(r, k, f)
         self._style_cell(field, self._cell_ok(key, row.get(key, "")))
         return field
+
+    # --- TYPE 1 "סוג" recipe picker ----------------------------------------
+    @staticmethod
+    def _chip(kind: str, text: str) -> ft.Control:
+        plan = kind == "plan"
+        return ft.Container(
+            bgcolor=Color.CHIP_PLAN_BG if plan else Color.CHIP_REPORT_BG,
+            border_radius=Radius.PILL,
+            padding=ft.padding.symmetric(horizontal=8, vertical=2),
+            content=ft.Text(text, size=Type.CAPTION[0], weight=ft.FontWeight.W_600,
+                            color=Color.CHIP_PLAN_FG if plan else Color.CHIP_REPORT_FG),
+        )
+
+    @staticmethod
+    def _chips(chips) -> ft.Control:
+        # Pills side by side on one line — the column is wide enough to fit them
+        # (option C). wrap is a safety net only; normally one line.
+        return ft.Row(spacing=5, wrap=True, run_spacing=3, tight=True,
+                      controls=[DataGridView._chip(k, t) for k, t in chips])
+
+    def _type_picker_cell(self, row: dict, width: int) -> ft.Control:
+        """Popup-menu cell for the סוג column: a full-width select-style field
+        with the recipe's pills on one line and a chevron at the (left) edge —
+        uniform height across rows (option C). A floating ``PopupMenuButton`` is
+        used, not a ``Dropdown`` (Flet 0.84 dropdowns have no blur, see
+        flet-ui-gotchas)."""
+        code = (row.get("type") or "").strip()
+        chips = _recipe_chips(code)
+        if chips:                       # known recipe → pills on one line
+            display, ok, tip = self._chips(chips), True, f"סוג {code}"
+        elif not code:                  # empty → placeholder
+            display = ft.Text("בחר פעולה", size=Type.BODY[0], color=Color.TEXT_TERTIARY)
+            ok, tip = True, None
+        else:                           # non-empty but not 1–6 (e.g. from paste)
+            display = ft.Text(f"סוג {ltr_isolate(code)}?", size=Type.BODY[0], color=Color.DANGER)
+            ok, tip = False, "ערך לא תקין — בחר סוג מהרשימה"
+
+        # Full-width field matching the id/date cells: pills hug the right, chevron
+        # at the left edge (SPACE_BETWEEN). Single line, so heights stay uniform.
+        field = ft.Container(
+            width=width, border_radius=Radius.SM, tooltip=tip,
+            padding=ft.padding.symmetric(horizontal=Space.SM, vertical=6),
+            border=ft.border.all(1, _CELL_BORDER if ok else Color.DANGER),
+            bgcolor=ft.Colors.with_opacity(0.5, "#ffffff"),
+            content=ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+                display,
+                ft.Icon(ft.Icons.ARROW_DROP_DOWN_ROUNDED, size=18, color=Color.TEXT_TERTIARY),
+            ]),
+        )
+        # The menu renders as an LTR overlay (outside the dialog's RTL). Every
+        # item uses the same shape: a fixed-width number column on the LEFT, and
+        # an expand container on the RIGHT whose inner row is END-aligned so the
+        # content is right-flush and bounded (wraps instead of bleeding out).
+        def _menu_item(left, right_controls, **kw):
+            return ft.PopupMenuItem(
+                padding=ft.padding.symmetric(horizontal=10, vertical=10),  # vertical breathing room
+                content=ft.Row(spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+                    ft.Container(width=48, content=left),
+                    ft.Container(expand=True, alignment=ft.Alignment.CENTER_RIGHT,
+                                 content=ft.Row(spacing=6, wrap=True, run_spacing=6, tight=True,
+                                                alignment=ft.MainAxisAlignment.END,
+                                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                controls=right_controls)),
+                ]),
+                **kw,
+            )
+
+        items = [
+            _menu_item(
+                ft.Text(f"סוג {c}", size=Type.CAPTION[0], color=Color.TEXT_TERTIARY),
+                [self._chip(k, t) for k, t in _recipe_chips(c)],
+                on_click=lambda _e, c=c: self._set_type(row, c),
+            )
+            for c in TYPE1_RECIPES
+        ]
+        # Footer: apply this row's סוג to every (non-empty) row — for a batch
+        # that's all one type. Disabled until the row has a valid code to copy.
+        has_code = code in TYPE1_RECIPES
+        accent = Color.BRAND if has_code else Color.TEXT_TERTIARY
+        items.append(ft.PopupMenuItem())  # divider
+        items.append(_menu_item(
+            None,
+            [ft.Text("החל סוג זה על כל השורות", size=Type.CAPTION[0], color=accent),
+             ft.Icon(ft.Icons.DONE_ALL_ROUNDED, size=16, color=accent)],
+            disabled=not has_code,
+            on_click=lambda _e: self._apply_type_to_all(code),
+        ))
+        return ft.PopupMenuButton(content=field, items=items, rtl=True, padding=0)
+
+    def _set_type(self, row: dict, code: str) -> None:
+        row["type"] = code
+        self._last_t1_type = code  # new rows inherit this pick
+        self._render_body()
+        self._body.update()
+        self._refresh_summary()
+        self._emit_change()
+
+    def _apply_type_to_all(self, code: str) -> None:
+        """Set every TYPE 1 row's סוג to ``code`` — a homogeneous batch in one
+        click. The trailing empty seed gets it too (so the whole batch shows one
+        type), which is safe now that a type-only row is ignored by _t1_filled."""
+        if code not in TYPE1_RECIPES:
+            return
+        for r in self._t1_rows:
+            r["type"] = code
+        self._last_t1_type = code
+        self._render_body()
+        self._body.update()
+        self._refresh_summary()
+        self._emit_change()
 
     def _store(self, target: dict, key: str, value: str) -> None:
         """Commit a keystroke to the model without touching the view."""
@@ -329,7 +474,6 @@ class DataGridView:
                           style=ft.ButtonStyle(color=Color.BRAND),
                           on_click=lambda _e: self._add_date()),
             self._paste_button(),
-            self._import_button(),
             self._clear_button(),
         )
         return ft.Column(spacing=Space.SM, expand=True, controls=[
@@ -460,17 +604,6 @@ class DataGridView:
             "הדבק מ-Excel", icon=ft.Icons.CONTENT_PASTE_ROUNDED, tooltip=tip,
             style=ft.ButtonStyle(color=Color.BRAND),
             on_click=lambda _e: self._paste_clicked(),
-        )
-
-    def _import_button(self) -> ft.Control:
-        # Excel is an import path *into* the grid (replaces the table). The actual
-        # file picking/reading lives on the host (main_window); we just expose the
-        # button here so it sits beside add/paste/clear in one toolbar row.
-        return ft.TextButton(
-            "ייבא מ-Excel", icon=ft.Icons.UPLOAD_FILE_ROUNDED,
-            tooltip="טען קובץ Excel קיים אל תוך הטבלה (מחליף את התוכן הנוכחי)",
-            style=ft.ButtonStyle(color=Color.BRAND),
-            on_click=lambda _e: self._on_import() if self._on_import else None,
         )
 
     def _save_button(self) -> ft.Control:
@@ -609,7 +742,11 @@ class DataGridView:
 
     # ------------------------------------------------------------------- queries
     def _t1_filled(self) -> list[dict]:
-        return [r for r in self._t1_rows if any((r.get(k) or "").strip() for k in ("id", "type", "date"))]
+        # A row "counts" only once it has an id or date. A type-only row is the
+        # inherited-type seed (see _new_t1_row) — it must stay ignorable like a
+        # fully-empty row, or the trailing seed would be flagged as a פגומה row
+        # and block the run after the first סוג pick.
+        return [r for r in self._t1_rows if any((r.get(k) or "").strip() for k in ("id", "date"))]
 
     def _t2_filled(self) -> list[dict]:
         return [r for r in self._t2_rows if (r.get("id") or "").strip()]
@@ -689,7 +826,7 @@ class DataGridView:
 
     # -------------------------------------------------------------------- export
     def to_source(self):
-        """Return a Memory*Source mirroring the Excel shapes, or None if invalid."""
+        """Return a Memory*Source built from the grid, or None if invalid."""
         if not self.is_valid():
             return None
         if self._type == "3":
@@ -743,6 +880,9 @@ class DataGridView:
                 {"id": str(r.get("id", "")), "type": str(r.get("type", "")), "date": str(r.get("date", ""))}
                 for r in t1 if isinstance(r, dict)
             ]
+            valid_types = [r["type"] for r in rows if r["type"] in TYPE1_RECIPES]
+            if valid_types:
+                self._last_t1_type = valid_types[-1]  # a fresh row inherits it
             self._t1_rows = rows or [self._new_t1_row()]
 
         t2 = state.get("t2")
@@ -766,67 +906,6 @@ class DataGridView:
                 parts.append({"id": str(p.get("id", "")), "present": present})
             self._t3_parts = parts or [self._new_t3_part()]
 
-    # ------------------------------------------------------------- excel import
-    def note(self, message: str, level: str = "ok") -> None:
-        """Public hook for the host to surface an import/export result on the
-        grid's inline feedback line (reuses the smart-paste note)."""
-        self._set_note(message, level)
-
-    def import_tabular_rows(self, incoming: list[dict]) -> str:
-        """Load grid-keyed rows read from Excel (TYPE 1 / 2) into the table.
-
-        Unlike smart-paste (which *appends* a copied selection,
-        :meth:`_apply_tabular_paste`), importing a file *replaces* the current
-        rows: the user is loading "this file", not adding to whatever the draft
-        already held from a previous session — appending there would silently mix
-        old and new batches. (Now that Excel is the only file path, this is the
-        intuitive behaviour.)
-        """
-        if self._type == "2":
-            fields, factory = ("id",), self._new_t2_row
-        else:  # TYPE 1
-            fields, factory = ("id", "type", "date"), self._new_t1_row
-        incoming = [r for r in incoming if any((r.get(k) or "").strip() for k in fields)]
-        if not incoming:
-            msg = "לא נמצאו שורות לייבוא בקובץ"
-            self._set_note(msg, "error")
-            return msg
-        rows = [{k: r.get(k, "") for k in fields} for r in incoming]
-        if self._type == "2":
-            self._t2_rows = rows or [factory()]
-        else:
-            self._t1_rows = rows or [factory()]
-        if self._body is not None:
-            self._render_body()
-            self._body.update()
-        self._refresh_summary()
-        self._emit_change()
-        msg = f"יובאו {len(incoming)} שורות מ-Excel (החליפו את הטבלה)"
-        self._set_note(msg, "ok")
-        return msg
-
-    def import_matrix(self, matrix: dict) -> str:
-        """Load a TYPE 3 attendance matrix read from Excel into the grid.
-
-        The matrix dict carries ISO ``yyyy-mm-dd`` dates and ``נוכח``/``לא נוכח``
-        tokens; convert them back to the grid's editable form (display dates +
-        per-date booleans). Replaces the current matrix (a matrix is one whole).
-        """
-        iso_dates = [str(d) for d in matrix.get("dates", [])]
-        self._t3_start = str(matrix.get("start_time", ""))
-        self._t3_end = str(matrix.get("end_time", ""))
-        self._t3_dates = [normalize_display_date(d) or d for d in iso_dates] or [""]
-        parts = []
-        for p in matrix.get("participants", []):
-            attendance = p.get("attendance", {})
-            present = [attendance.get(d) == _PRESENT for d in iso_dates]
-            parts.append({"id": str(p.get("id_number", "")), "present": present})
-        self._t3_parts = parts or [self._new_t3_part()]
-        self._rerender_t3()
-        msg = f"יובאו {len(parts)} משתתפים · {len(iso_dates)} תאריכים"
-        self._set_note(msg, "ok")
-        return msg
-
     def _build_matrix(self) -> dict:
         # The grid holds Israeli d.m.yyyy dates; the processor wants ISO
         # (strptime "%Y-%m-%d %H:%M"), so convert here at the source boundary.
@@ -836,7 +915,7 @@ class DataGridView:
         participants = []
         for p in self._t3_filled_parts():
             id_str = _digits(p["id"])
-            if len(id_str) <= 9:  # mirror ExcelParser padding to 9
+            if len(id_str) <= 9:  # pad IDs to 9 digits (TYPE 3 convention)
                 id_str = id_str.zfill(9)
             attendance = {}
             for col_index, date_str in date_cols:

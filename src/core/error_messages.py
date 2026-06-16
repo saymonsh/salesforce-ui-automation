@@ -98,20 +98,7 @@ def humanize_error(exc, stage: str | None = None) -> tuple[str, str]:
                 "השמירה מול Salesforce נכשלה. פתח את זרם הפעילות (הטרמינל) כדי לראות "
                 "את תגובת השרת המלאה.")
 
-    # 4. Excel / input file.
-    if etype == "FileNotFoundError" or "no such file" in low:
-        return ("קובץ ה-Excel לא נמצא",
-                "הקובץ שנבחר לא קיים יותר בנתיב שלו. בחר קובץ קיים ונסה שוב.")
-    if etype == "BadZipFile" or "excel file format" in low or "unsupported format" in low \
-            or "not a zip file" in low or "no engine for filetype" in low:
-        return ("קובץ ה-Excel פגום",
-                "לא ניתן לקרוא את הקובץ. פתח אותו ב-Excel ושמור מחדש כקובץ ‎.xlsx ונסה שוב.")
-    if etype == "KeyError":
-        return ("חסרה עמודה בקובץ ה-Excel",
-                "אחת מהעמודות הנדרשות חסרה. ודא שקיימות העמודות: תעודות זהות, סוג, תאריך "
-                "(בכותרות, בדיוק כפי שנכתב).")
-
-    # 5. Timeouts / missing elements — meaning depends on the stage.
+    # 4. Timeouts / missing elements — meaning depends on the stage.
     if etype == "TimeoutException" or "timed out" in low or "timeout" in low:
         if st == "login":
             # A login timeout with no error banner (the banner case is handled
@@ -131,7 +118,7 @@ def humanize_error(exc, stage: str | None = None) -> tuple[str, str]:
     if etype == "StaleElementReferenceException" or "stale element" in low:
         return ("המסך התרענן באמצע פעולה", "נסה להריץ שוב.")
 
-    # 6. Known wrapped failures from the processors.
+    # 5. Known wrapped failures from the processors.
     if "critical failure" in low and "type 1" in low:
         return ("עיבוד שורה מסוג 1 נכשל",
                 "אחת השורות מסוג 1 נכשלה והתהליך נעצר. פתח את זרם הפעילות כדי לראות באיזו "

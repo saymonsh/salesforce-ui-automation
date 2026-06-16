@@ -19,7 +19,6 @@ from src.core.config import config_instance as parm
 from src.core.status_messages import Status
 from src.core.utils import ltr_isolate
 from src.ui.data_grid import DataGridView
-from src.ui.help_dialog import create_help_dialog
 from src.ui.theme import Color, Font, Radius, Space, Term, Type, apply_theme
 
 # Map a debug-channel severity to its feed line color (the macOS terminal).
@@ -179,8 +178,7 @@ class MainView:
             pass
 
     def _build_controls(self) -> None:
-        # File picker is still needed for importing an Excel file into the grid
-        # and for saving the activity-feed log — not for a main-screen file mode.
+        # File picker is used only for saving the activity-feed log.
         self.file_picker = ft.FilePicker()
         self.clipboard = ft.Clipboard()  # system clipboard for "copy all" in the feed
         self.page.services.append(self.file_picker)
@@ -239,7 +237,6 @@ class MainView:
         self._type_value = str(parm.TYPE) if parm.TYPE is not None else ""
 
         # --- Chrome (topbar icons + window controls) ----------------------------
-        self.help_button = ft.IconButton(ft.Icons.INFO_OUTLINE_ROUNDED, icon_color=Color.TEXT_SECONDARY, tooltip="עזרה")
         self.settings_button = ft.IconButton(ft.Icons.SETTINGS_ROUNDED, icon_color=Color.TEXT_SECONDARY, tooltip="הגדרות")
 
         self.win_min = ft.IconButton(
@@ -302,8 +299,7 @@ class MainView:
 
         # --- Manual-entry grid (issue #16) --------------------------------------
         self.data_grid = DataGridView(
-            self.page, on_change=self._on_grid_change, on_import=self._import_grid_clicked,
-            on_save=self._close_grid_dialog)
+            self.page, on_change=self._on_grid_change, on_save=self._close_grid_dialog)
         self._restore_draft()  # repopulate the grid from the last session (issue #18)
         if self._type_value:
             self.data_grid.rebuild_for_type(self._type_value)
@@ -325,8 +321,8 @@ class MainView:
             style=ft.ButtonStyle(color=Color.BRAND, padding=Space.SM),
             on_click=lambda _: self.show_grid_dialog(),
         )
-        # The entry grid is the single input source (epic #14 / #18 — Excel is an
-        # import path into it, not a separate mode). Seed the zone once.
+        # The entry grid is the single input source (epic #14 / #18 — typed or
+        # smart-pasted, no Excel-file input). Seed the zone once.
         self._input_zone_holder = ft.Container(content=self._build_manual_zone())
         self._refresh_manual_zone()
 
@@ -649,7 +645,7 @@ class MainView:
                     ft.Image(src="/icons/kivun_mark.svg", width=34, height=34),
                     ft.Text("כיוון", size=20, weight=ft.FontWeight.W_700, color=Color.BRAND),
                 ]),
-                ft.Row(spacing=Space.XS, controls=[self.feed_button, self.settings_button, self.help_button]),
+                ft.Row(spacing=Space.XS, controls=[self.feed_button, self.settings_button]),
             ],
         )
         return ft.Container(
@@ -848,7 +844,7 @@ class MainView:
         return (x, y, w, h)
 
     def _any_dialog_open(self) -> bool:
-        """True while any Flet dialog (settings, grid, feed, alert, help) is on
+        """True while any Flet dialog (settings, grid, feed, alert) is on
         screen. The owned Chrome overlay is a top-level OS window that paints OVER
         in-app dialogs — it can't be clipped — so while a dialog is up the overlay
         must hide, or it masks the dialog and the app looks frozen behind it (#5).
@@ -964,12 +960,11 @@ class MainView:
         elif self._on_run:
             self._on_run(e)
 
-    def bind_actions(self, on_run, on_stop, on_settings, on_help, on_close_handoff=None) -> None:
+    def bind_actions(self, on_run, on_stop, on_settings, on_close_handoff=None) -> None:
         self._on_run = on_run
         self._on_stop = on_stop
         self._on_close_handoff = on_close_handoff
         self.settings_button.on_click = on_settings
-        self.help_button.on_click = on_help
 
     def set_status(self, text: str, level: str | None = None) -> None:
         """Updates the hero state/caption only. The feed shows real terminal output."""
@@ -1179,10 +1174,9 @@ class MainView:
             ft.Icons.CLOSE_ROUNDED, icon_color=Color.TEXT_SECONDARY, icon_size=20,
             tooltip="סגור", on_click=lambda _: self._close_grid_dialog(),
         )
-        # "ייבא מ-Excel" and "שמור וסגור" now live in the grid's own toolbar
-        # (next to add/paste/clear), so every action sits on one row — see
-        # DataGridView. The host still owns their handlers via the on_import /
-        # on_save callbacks passed when the grid was constructed.
+        # "שמור וסגור" lives in the grid's own toolbar (next to add/paste/clear),
+        # so every action sits on one row — see DataGridView. The host owns its
+        # handler via the on_save callback passed when the grid was constructed.
         self._grid_dialog = ft.AlertDialog(
             modal=True, rtl=True,
             # Same translucent glass as the settings dialog. The main panel is
@@ -1264,30 +1258,6 @@ class MainView:
             self.show_alert("שורות פגומות", Status.MANUAL_INVALID + "\n\n• " + "\n• ".join(reasons), "warning")
             return None
         return self.data_grid.to_source()
-
-    # --------------------------------------------------- grid Excel import/export
-    def _import_grid_clicked(self) -> None:
-        self.page.run_task(self._import_grid_async)
-
-    async def _import_grid_async(self) -> None:
-        files = await self.file_picker.pick_files(
-            allow_multiple=False, file_type=ft.FilePickerFileType.CUSTOM,
-            allowed_extensions=["xlsx", "xls"], dialog_title="ייבא קובץ Excel לטבלה",
-        )
-        if not files:
-            return
-        path = files[0].path or files[0].name
-        try:
-            if self._type_value == "3":
-                from src.automation.excel_import import read_matrix
-                self.data_grid.import_matrix(read_matrix(path))
-            else:
-                from src.automation.excel_import import read_tabular
-                self.data_grid.import_tabular_rows(read_tabular(path, self._type_value))
-        except Exception as ex:  # malformed/locked file — surface on the grid note
-            self.data_grid.note(f"ייבוא נכשל: {ex}", "error")
-            return
-        self.save_draft()  # the imported rows are now part of the draft
 
     # ------------------------------------------------------------- settings modal
     def show_settings_view(self, settings_container) -> None:
@@ -1433,10 +1403,6 @@ class MainView:
             btn, ft.Icons.CHECK_ROUNDED, Color.SUCCESS, "הועתק!",
             ft.Icons.CONTENT_COPY_ROUNDED, "העתק ת.ז.", rest_color=Color.TEXT_SECONDARY,
         )
-
-    def show_help_dialog(self) -> None:
-        self.page.show_dialog(create_help_dialog(self.page))
-        self._safe_update()
 
     def _close_dialog(self, dialog: ft.AlertDialog) -> None:
         dialog.open = False
