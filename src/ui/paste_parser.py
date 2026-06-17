@@ -46,6 +46,32 @@ def digits(value: str) -> str:
     return "".join(ch for ch in (value or "") if ch.isdigit())
 
 
+# --- live input masks (typed path) -------------------------------------------
+# The grid auto-inserts the separators as the operator types, so they never have
+# to reach for "." or ":". Both masks are PURE and recompute from the digits
+# alone, so they're idempotent and backspace-friendly: deleting a digit just
+# re-derives a shorter string, and a stray separator the user types is absorbed
+# (digits() drops it, the mask re-adds it in the right slot). Fixed-width
+# dd.mm.yyyy / HH:MM (chosen over a variable d.m.yyyy mask, which can't tell "1"
+# the 1st from the start of "15") — both shapes already pass the validators above.
+
+def mask_date(value: str) -> str:
+    """``dd.mm.yyyy`` from a free-typed string, keeping only its digits."""
+    ds = digits(value)[:8]
+    out = ds[:2]
+    if len(ds) > 2:
+        out += "." + ds[2:4]
+    if len(ds) > 4:
+        out += "." + ds[4:8]
+    return out
+
+
+def mask_time(value: str) -> str:
+    """``HH:MM`` from a free-typed string, keeping only its digits."""
+    ds = digits(value)[:4]
+    return ds if len(ds) <= 2 else ds[:2] + ":" + ds[2:4]
+
+
 def id_valid(value: str) -> bool:
     """Digits-only, 1–9 chars — lenient (no Israeli check-digit)."""
     s = (value or "").strip()

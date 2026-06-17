@@ -39,6 +39,8 @@ from src.ui.paste_parser import (
     RE_TIME as _RE_TIME,
     digits as _digits,
     id_valid,
+    mask_date,
+    mask_time,
     normalize_iso_date,
     parse_matrix,
     parse_tabular,
@@ -247,7 +249,7 @@ class DataGridView:
         # operator chooses meaning, the int-like code is stored under it.
         if key == "type":
             return self._type_picker_cell(row, width)
-        hint = {"id": "מספר זהות", "date": "d.m.yyyy"}[key]
+        hint = {"id": "מספר זהות", "date": "dd.mm.yyyy"}[key]
         field = ft.TextField(
             value=row.get(key, ""), width=width, hint_text=hint,
             text_size=Type.BODY[0], dense=True, content_padding=Space.SM,
@@ -255,10 +257,15 @@ class DataGridView:
             focused_border_color=Color.BRAND, cursor_color=Color.BRAND,
             bgcolor=ft.Colors.with_opacity(0.5, "#ffffff"), color=Color.TEXT_PRIMARY,
         )
-        # on_change stores the value ONLY — no .update() while the field is
-        # focused (that resets the cursor in Flet 0.84). Validation/recolor runs
-        # on_blur, when the field is no longer focused. See flet-ui-gotchas.
-        field.on_change = lambda e, r=row, k=key: self._store(r, k, e.control.value)
+        # The id cell stores the value ONLY — no .update() while focused (that
+        # resets the cursor in Flet 0.84). The date cell auto-inserts its dots
+        # via the live mask (which pins the caret, so the focused update is safe);
+        # validation/recolor still runs on_blur. See flet-ui-gotchas.
+        if key == "date":
+            field.on_change = lambda e, f=field, r=row: self._live_mask(
+                f, mask_date, lambda v, rr=r: self._store(rr, "date", v))
+        else:
+            field.on_change = lambda e, r=row, k=key: self._store(r, k, e.control.value)
         field.on_blur = lambda e, r=row, k=key, f=field: self._validate_cell(r, k, f)
         self._style_cell(field, self._cell_ok(key, row.get(key, "")))
         return field
@@ -378,6 +385,26 @@ class DataGridView:
         """Commit a keystroke to the model without touching the view."""
         target[key] = value
 
+    def _live_mask(self, field: ft.TextField, mask_fn, store) -> None:
+        """on_change handler for masked (date/time) cells: reformat the typed
+        text via ``mask_fn``, commit it through ``store``, and — only when the
+        reformat actually changed the text (e.g. a separator was inserted) —
+        rewrite the field and pin the caret to the end.
+
+        Unlike the plain ``_store`` path, this DOES ``field.update()`` while the
+        field is focused. That's safe here because we set ``selection`` to a
+        collapsed caret at the end first: the Flet 0.84 "cursor jumps on focused
+        update" footgun is exactly an un-pinned caret, and date/time entry is
+        append-only so end-of-field is where the next keystroke goes anyway. It's
+        a local field patch, never a page/ancestor update (see flet-ui-gotchas)."""
+        masked = mask_fn(field.value)
+        store(masked)
+        if field.value != masked:
+            field.value = masked
+            end = len(masked)
+            field.selection = ft.TextSelection(base_offset=end, extent_offset=end)
+            field.update()
+
     def _validate_cell(self, row: dict, key: str, field: ft.TextField) -> None:
         self._style_cell(field, self._cell_ok(key, row.get(key, "")))
         field.update()
@@ -491,7 +518,8 @@ class DataGridView:
             focused_border_color=Color.BRAND, cursor_color=Color.BRAND,
             bgcolor=ft.Colors.with_opacity(0.5, "#ffffff"), color=Color.TEXT_PRIMARY,
         )
-        field.on_change = lambda e, w=which: self._store_time(w, e.control.value)
+        field.on_change = lambda e, w=which, f=field: self._live_mask(
+            f, mask_time, lambda v, ww=w: self._store_time(ww, v))
         field.on_blur = lambda e, w=which, f=field: self._validate_time(w, f)
         self._style_cell(field, not value.strip() or bool(_RE_TIME.match(value.strip())))
         return field
@@ -514,12 +542,13 @@ class DataGridView:
         # Shown to the user in Israeli d.m.yyyy; converted to ISO only when the
         # matrix is built (see _build_matrix). Typed ISO is still accepted.
         field = ft.TextField(
-            value=value, width=width, hint_text="d.m.yyyy", text_size=Type.CAPTION[0],
+            value=value, width=width, hint_text="dd.mm.yyyy", text_size=Type.CAPTION[0],
             dense=True, content_padding=Space.XS, border_radius=Radius.SM,
             border_color=_CELL_BORDER, focused_border_color=Color.BRAND, cursor_color=Color.BRAND,
             bgcolor=ft.Colors.with_opacity(0.5, "#ffffff"), color=Color.TEXT_PRIMARY,
         )
-        field.on_change = lambda e, i=idx: self._store_date(i, e.control.value)
+        field.on_change = lambda e, i=idx, f=field: self._live_mask(
+            f, mask_date, lambda v, ii=i: self._store_date(ii, v))
         field.on_blur = lambda e, i=idx, f=field: self._validate_date(i, f)
         self._style_cell(field, not value.strip() or normalize_iso_date(value) is not None)
         return field
@@ -800,7 +829,7 @@ class DataGridView:
             if s and normalize_iso_date(s) is None:
                 reasons.append(
                     f"תאריך בעמודה {ltr_isolate(i)} חייב להיות תאריך תקין "
-                    f"({ltr_isolate('d.m.yyyy')})"
+                    f"({ltr_isolate('dd.mm.yyyy')})"
                 )
         if not self._t3_filled_dates():
             reasons.append("נדרש לפחות תאריך אחד")
