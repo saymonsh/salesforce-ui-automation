@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Windows desktop app that automates the Israeli Welfare Ministry's Salesforce Lightning UI (`welfareministry.lightning.force.com`) to perform bulk actions — one Salesforce operation per row, entered in the app's data-entry grid (an existing Excel file can be imported into the grid). It logs in (username/password + TOTP MFA), then iterates rows to create activities/reports or add candidates to a service schedule. The UI is in Hebrew (RTL).
+A Windows desktop app that automates the Israeli Welfare Ministry's Salesforce Lightning UI (`welfareministry.lightning.force.com`) to perform bulk actions — one Salesforce operation per row, entered in the app's data-entry grid (rows are typed in or smart-pasted from Excel/Sheets; there is no Excel-*file* import — see "Input data"). It logs in (username/password + TOTP MFA), then iterates rows to create activities/reports or add candidates to a service schedule. The UI is in Hebrew (RTL).
 
 ## Commands
 
@@ -15,9 +15,13 @@ python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 python -m src.main          # launch the app
+python -m src.main --dry_run # dry-run: full UI, no Selenium/Salesforce (see below)
+python tests/test_type1_recipes.py   # run a self-check (framework-free, assert-based)
 ```
 
-There is no test suite, linter, or build step configured. `python -m src.main` is the only entry point.
+There is no linter or build step. Tests are framework-free, assert-based self-checks run directly as scripts (e.g. `python tests/test_type1_recipes.py`) — there is no pytest/test runner.
+
+**Dry-run / demo mode** (`--dry_run`, gated by `DRY_RUN` in `src/core/constants.py`): previews the whole UI with no Selenium or Salesforce. `WorkerManager` swaps in `DemoProcessor` + `DemoDriverManager`, which embed a placeholder window (e.g. mspaint) as a Chrome stand-in so the embedding/handoff flow can be exercised offline.
 
 ## Runtime prerequisites (these cause startup/runtime failures if missing)
 
@@ -80,4 +84,6 @@ Every TYPE takes its input from the entry grid (`worker_manager.start(source)` g
 
 - `1` → `LoginProcessor` (also requires Activity NUMBER + DESCRIPTION in settings)
 - `2` → `CandidateProcessor`
-- `3` → `AttendanceProcessor`: fills an attendance matrix via the Aura API.
+- `3` → `AttendanceProcessor`: fills an attendance matrix via the Aura API (compare/upsert modes — see `docs/type3-attendance-modes.md`).
+
+UI styling conventions live in `DESIGN_SYSTEM.md` (consult it before touching theme/layout).
