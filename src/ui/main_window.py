@@ -14,7 +14,7 @@ from src.automation.win_window import (
     host_metrics,
     set_process_dpi_aware,
 )
-from src.core.constants import APP_WINDOW_TITLE
+from src.core.constants import APP_WINDOW_TITLE, T3_MODE_COMPARE, T3_MODE_UPSERT
 from src.core.config import config_instance as parm
 from src.core.status_messages import Status
 from src.core.utils import ltr_isolate
@@ -236,6 +236,17 @@ class MainView:
         self._type_segments: dict[str, ft.Container] = {}
         self._type_value = str(parm.TYPE) if parm.TYPE is not None else ""
 
+        # --- TYPE 3 sub-mode (compare vs upsert) --------------------------------
+        # Lives on the MAIN panel, not buried in settings, so the operator sees at
+        # the moment of running whether the next run only reads (בדיקה) or writes
+        # to production (עדכון). Same glass-pill styling as the type selector above
+        # it (no border, no label, no caption — kept quiet). The irreversible-write
+        # warning is carried by the run's confirm dialog (Controller.on_run_click).
+        self._t3_segments: dict[str, ft.Container] = {}
+        self._t3_mode_value = getattr(parm, "T3_MODE", T3_MODE_COMPARE) or T3_MODE_COMPARE
+        self._t3_mode_holder = ft.Container(
+            visible=self._type_value == "3", content=self._build_t3_mode_selector())
+
         # --- Chrome (topbar icons + window controls) ----------------------------
         self.settings_button = ft.IconButton(ft.Icons.SETTINGS_ROUNDED, icon_color=Color.TEXT_SECONDARY, tooltip="הגדרות")
 
@@ -386,6 +397,7 @@ class MainView:
             return
         self._type_value = key
         self._style_type_segments()
+        self._t3_mode_holder.visible = key == "3"  # sub-mode toggle is TYPE-3 only
         try:
             parm.update_config("Salesforce", "TYPE", key)
         except Exception as ex:  # pragma: no cover - disk/parse failure
@@ -413,9 +425,55 @@ class MainView:
         """Re-sync the selector after the settings dialog may have changed TYPE."""
         self._type_value = str(parm.TYPE) if parm.TYPE is not None else ""
         self._style_type_segments()
+        self._t3_mode_holder.visible = self._type_value == "3"
         # The grid columns are derived from TYPE — keep it in sync.
         self.data_grid.rebuild_for_type(self._type_value)
         self._refresh_manual_zone()
+
+    # --------------------------------------------------------- TYPE 3 sub-mode
+    _T3_MODE_LABELS = ((T3_MODE_COMPARE, "השוואה"), (T3_MODE_UPSERT, "עדכון"))
+
+    def _build_t3_mode_selector(self) -> ft.Container:
+        """A 2-segment glass pill bar mirroring _build_type_selector — text only,
+        no border/label/caption — so it reads as a sub-choice of the נוכחות type."""
+        segs: list[ft.Control] = []
+        for key, label in self._T3_MODE_LABELS:
+            seg = ft.Container(
+                data=key, expand=True, ink=True, border_radius=Radius.MD,
+                padding=ft.padding.symmetric(vertical=Space.SM, horizontal=Space.XS),
+                alignment=ft.Alignment.CENTER, on_click=self._t3_clicked,
+                content=ft.Text(label, size=Type.CAPTION[0], weight=ft.FontWeight.W_600,
+                                text_align=ft.TextAlign.CENTER),
+            )
+            self._t3_segments[key] = seg
+            segs.append(seg)
+        self._style_t3_segments()  # initial look only — not mounted yet
+        return ft.Container(
+            bgcolor=_GLASS_INSET, border_radius=Radius.LG, padding=4,
+            content=ft.Row(spacing=4, controls=segs),
+        )
+
+    def _style_t3_segments(self) -> None:
+        for key, seg in self._t3_segments.items():
+            on = key == self._t3_mode_value
+            seg.bgcolor = Color.BRAND if on else ft.Colors.TRANSPARENT
+            seg.content.color = Color.TEXT_ON_BRAND if on else Color.TEXT_SECONDARY
+            seg.content.weight = ft.FontWeight.W_700 if on else ft.FontWeight.W_600
+
+    def _t3_clicked(self, e: ft.ControlEvent) -> None:
+        if self._running:
+            return  # locked mid-run
+        key = e.control.data
+        if key == self._t3_mode_value:
+            return
+        self._t3_mode_value = key
+        self._style_t3_segments()
+        try:
+            parm.update_config("Salesforce", "T3_MODE", key)
+        except Exception as ex:  # pragma: no cover - disk/parse failure
+            self.show_alert("שגיאה", f"שמירת מצב הנוכחות נכשלה:\n{ex}", "error")
+            return
+        self._safe_update()
 
     # ------------------------------------------------------------------ manual zone
     def _build_manual_zone(self) -> ft.Container:
@@ -666,6 +724,7 @@ class MainView:
                     topbar,
                     ft.Divider(color=ft.Colors.with_opacity(0.5, Color.BORDER), height=1),
                     self._build_type_selector(),
+                    self._t3_mode_holder,
                     self._input_zone_holder,
                     self._build_hero(),
                     self.linear,
@@ -1126,6 +1185,10 @@ class MainView:
         self.settings_button.disabled = locked
         self.settings_button.opacity = 0.5 if locked else 1.0
         self.settings_button.tooltip = "לא ניתן לשנות הגדרות בזמן ריצה" if locked else "הגדרות"
+        # The TYPE 3 sub-mode is part of the input — lock it mid-run too (disabled
+        # on the container blocks clicks reaching the inner segments).
+        self._t3_mode_holder.disabled = locked
+        self._t3_mode_holder.opacity = 0.55 if locked else 1.0
 
     def disable_stop(self) -> None:
         self.action_circle.disabled = True
@@ -1375,6 +1438,36 @@ class MainView:
         )
         self.page.show_dialog(dialog)
         self._safe_update()
+
+    def confirm(self, title: str, message: str, confirm_label: str, on_confirm,
+                level: str = "warning") -> None:
+        """Two-choice modal: cancel (default) or proceed with a consequential
+        action. Used to gate the TYPE 3 upsert run, which writes to production
+        irreversibly — the operator must opt in each time. `on_confirm` runs only
+        if they pick the confirm button."""
+        icon = ft.Icons.ERROR_OUTLINE_ROUNDED if level == "error" else ft.Icons.WARNING_AMBER_ROUNDED
+        icon_color = Color.DANGER if level == "error" else Color.ACTION_REQUIRED
+        dialog = ft.AlertDialog(
+            modal=True, rtl=True,
+            title=ft.Row(spacing=Space.SM, controls=[
+                ft.Icon(icon, color=icon_color), ft.Text(title, color=Color.TEXT_PRIMARY)]),
+            content=self._alert_content(message),
+            actions=[
+                ft.TextButton("ביטול", on_click=lambda _: self._close_dialog(dialog)),
+                ft.FilledButton(
+                    confirm_label,
+                    style=ft.ButtonStyle(bgcolor=Color.ACTION_REQUIRED, color=Color.TEXT_PRIMARY),
+                    on_click=lambda _: self._confirm_and_run(dialog, on_confirm),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.show_dialog(dialog)
+        self._safe_update()
+
+    def _confirm_and_run(self, dialog: ft.AlertDialog, on_confirm) -> None:
+        self._close_dialog(dialog)
+        on_confirm()
 
     def _close_alert(self, dialog: ft.AlertDialog, on_closed=None) -> None:
         """Close an alert and run an optional after-close hook. The completion

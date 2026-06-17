@@ -1,5 +1,4 @@
 from src.core.config import config_instance as parm
-from src.core.constants import T3_MODE_COMPARE
 from src.ui.settings_window import SettingsFields, build_settings_view
 
 
@@ -20,7 +19,6 @@ class SettingsController:
                 "ACT_NU": parm.ACT_NU or "",
                 "URL": parm.URL or "",
                 "TYPE": str(parm.TYPE or ""),
-                "T3_MODE": getattr(parm, "T3_MODE", T3_MODE_COMPARE) or T3_MODE_COMPARE,
             },
             on_save=self._save_settings,
         )
@@ -34,7 +32,6 @@ class SettingsController:
         parm.update_config("Activity", "NUMBER", fields.act_nu.value)
         parm.update_config("Salesforce", "URL", fields.url.value)
         parm.update_config("Salesforce", "TYPE", fields.type_value.value)
-        parm.update_config("Salesforce", "T3_MODE", fields.t3_mode.value)
 
         try:
             parm.reload()

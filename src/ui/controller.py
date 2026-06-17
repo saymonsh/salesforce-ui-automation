@@ -1,3 +1,5 @@
+from src.core.config import config_instance as parm
+from src.core.constants import T3_MODE_COMPARE, T3_MODE_UPSERT
 from src.core.status_messages import Status
 from src.core.utils import strip_isolates
 from src.ui.settings_controller import SettingsController
@@ -56,6 +58,21 @@ class Controller:
         if source is None:
             return  # the grid is empty/invalid — main_view already alerted
 
+        # TYPE 3 upsert writes to production irreversibly (creates sessions, syncs
+        # attendance) — make the operator opt in each time. Compare (read-only) and
+        # the other types start straight away.
+        if str(parm.TYPE) == "3" and getattr(parm, "T3_MODE", T3_MODE_COMPARE) == T3_MODE_UPSERT:
+            self.main_view.confirm(
+                "לעדכן את הנוכחות במערכת?",
+                "הפעולה תיצור מפגשים חסרים ותעדכן את הנוכחות לפי הטבלה — "
+                "ולא ניתן לבטל אותה.",
+                "כן, עדכן",
+                lambda: self._start_run(source),
+            )
+            return
+        self._start_run(source)
+
+    def _start_run(self, source):
         # A pending TYPE 2 handoff still holds chromedriver on port 9515 — close it
         # cleanly before the new run grabs the port (mirrors the old behaviour where
         # starting a run discarded an unfinished handoff, just without leaking it).

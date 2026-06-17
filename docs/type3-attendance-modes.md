@@ -1,13 +1,16 @@
 # TYPE 3 (attendance) — compare & upsert sub-modes
 
 TYPE 3 fills the Welfare Ministry's group-attendance matrix into Salesforce via
-the Aura API. It has **two sub-modes**, chosen by the `[Salesforce] T3_MODE`
-config key (surfaced as a selector in the settings panel when TYPE 3 is picked):
+the Aura API. It has **two sub-modes**, stored in the `[Salesforce] T3_MODE`
+config key and chosen by a selector **on the main panel** (shown only when TYPE 3
+is selected, beside the run button — so the write-vs-read choice is visible at the
+moment of action, not buried in settings). Starting an `upsert` run pops a confirm
+dialog first, since it writes to production irreversibly:
 
-| `T3_MODE` | Label | What it does | Writes? |
+| `T3_MODE` | Label (main-panel pill) | What it does | Writes? |
 |---|---|---|---|
-| `compare` | השוואה בלבד | Read existing SF attendance, diff it against the grid, report the differences. | **none** |
-| `upsert` | עדכון והשלמה | Create missing sessions and sync attendance to the grid (delta only). | yes |
+| `compare` | השוואה | Read existing SF attendance, diff it against the grid, report the differences. | **none** |
+| `upsert` | עדכון | Create missing sessions and sync attendance to the grid (delta only). | yes |
 
 There is deliberately **no "mode 1"** — the old blind-create behaviour was
 removed (it created duplicate sessions on re-run and could not fix existing
