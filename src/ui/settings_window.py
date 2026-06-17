@@ -16,6 +16,13 @@ TYPE_OPTIONS = [
     ("3", "נוכחות"),
 ]
 
+# TYPE 3 sub-mode options, shown only when TYPE 3 is selected. Keys are the
+# T3_MODE config values: "2" = read-only compare, "3" = update-and-complete.
+T3_MODE_OPTIONS = [
+    ("2", "השוואה בלבד"),
+    ("3", "עדכון והשלמה"),
+]
+
 
 @dataclass
 class SettingsFields:
@@ -26,6 +33,7 @@ class SettingsFields:
     act_nu: ft.TextField
     url: ft.TextField
     type_value: SegmentedSelect
+    t3_mode: SegmentedSelect
 
 
 def build_settings_view(
@@ -58,12 +66,23 @@ def build_settings_view(
         content=row((url_field, 12)),
         visible=init_type in ("2", "3"),
     )
+    # TYPE 3 only: choose between read-only compare ("2") and upsert ("3").
+    # Defined before _on_type_change so the callback can toggle its visibility.
+    t3_mode_select = SegmentedSelect(
+        "מצב נוכחות", T3_MODE_OPTIONS, initial_values.get("T3_MODE", "2") or "2",
+    )
+    t3_mode_row = ft.Container(
+        content=row((t3_mode_select.control, 12)),
+        visible=init_type == "3",
+    )
 
     def _on_type_change(new_type: str) -> None:
         act_row.visible = new_type == "1"
         url_row.visible = new_type in ("2", "3")
+        t3_mode_row.visible = new_type == "3"
         act_row.update()
         url_row.update()
+        t3_mode_row.update()
 
     fields = SettingsFields(
         user_name=text_field("USER_NAME", initial_values.get("USER_NAME", "")),
@@ -79,6 +98,7 @@ def build_settings_view(
         type_value=SegmentedSelect(
             "TYPE", TYPE_OPTIONS, init_type, on_change=_on_type_change
         ),
+        t3_mode=t3_mode_select,
     )
 
     def accordion(title: str, *rows: ft.Control, expanded: bool = False) -> ft.ExpansionTile:
@@ -113,6 +133,7 @@ def build_settings_view(
                 row((fields.type_value.control, 12)),
                 act_row,
                 url_row,
+                t3_mode_row,
                 expanded=True,
             ),
             accordion(

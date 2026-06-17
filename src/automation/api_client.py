@@ -182,11 +182,122 @@ class SalesforceApiClient:
                 sfdc_id = rec.get('id')
                 id_num = rec.get('fields', {}).get('Pa_ID_Number__c', {}).get('value')
                 if id_num:
-                    mapping[str(id_num)] = sfdc_id
+                    # Normalize to 9 digits, matching the grid's zfill(9)
+                    # (DataGridView._build_matrix), so a Salesforce value that
+                    # dropped a leading zero still joins to the padded grid IDs. A
+                    # no-op when SF already stores the full 9-digit ID.
+                    key = str(id_num)
+                    if key.isdigit() and len(key) <= 9:
+                        key = key.zfill(9)
+                    mapping[key] = sfdc_id
         except Exception as e:
             raise Exception(f"Error parsing participants response: {e}, Data: {data}")
             
         return mapping
+
+    def get_sessions(self, parent_record_id):
+        """Read existing Pa_Service_Session__c records under a service schedule
+        via the Service_Sessions__r related list. READ-ONLY.
+
+        Returns a list of {"id", "name", "start_utc"} dicts. ``start_utc`` is the
+        raw Salesforce UTC datetime string — the caller converts it to an
+        Israel-local date for matching against the grid.
+        """
+        payload = {
+            "actions": [{
+                "id": "1;a",
+                "descriptor": "aura://RelatedListUiController/ACTION$postRelatedListRecords",
+                "callingDescriptor": "UNKNOWN",
+                "params": {
+                    "parentRecordId": parent_record_id,
+                    "relatedListId": "Service_Sessions__r",
+                    "listRecordsQuery": {
+                        "fields": [
+                            "Pa_Service_Session__c.Id",
+                            "Pa_Service_Session__c.Name",
+                            "Pa_Service_Session__c.Pa_Session_Start_DateTime__c"
+                        ],
+                        "pageSize": 1999,
+                        "pageToken": "0"
+                    }
+                }
+            }]
+        }
+
+        data = self._execute_aura_request('/aura?r=1&aura.RelatedListUi.postRelatedListRecords=1', payload)
+
+        logger.debug(f"getSessions response: {_redact_pii(json.dumps(data, ensure_ascii=False))}", stage="aura")
+
+        action = data.get('actions', [{}])[0]
+        if action.get('state') == 'ERROR':
+            raise Exception(f"Salesforce ERROR: {action.get('error')}")
+        return_value = action.get('returnValue')
+        if return_value is None:
+            raise Exception(f"returnValue is None! Action data: {action}")
+
+        sessions = []
+        for rec in return_value.get('records', []):
+            fields = rec.get('fields', {})
+            sessions.append({
+                "id": rec.get('id'),
+                "name": (fields.get('Name') or {}).get('value'),
+                "start_utc": (fields.get('Pa_Session_Start_DateTime__c') or {}).get('value'),
+            })
+        return sessions
+
+    def get_service_deliveries(self, session_id):
+        """Read existing Service_Delivery__c (attendance) records under a session
+        via the Service_Deliveries__r related list. READ-ONLY.
+
+        This is the compare mode's read path. It deliberately does NOT use the
+        Pa_Create_Service_Delivery flow: opening that flow (startFlow) CREATES and
+        commits the per-participant rows on a not-yet-reported session — a write.
+        A related-list read never does that; an unreported session simply yields
+        an empty list. Returns [{"id", "participant", "status", "reason"}].
+        """
+        payload = {
+            "actions": [{
+                "id": "1;a",
+                "descriptor": "aura://RelatedListUiController/ACTION$postRelatedListRecords",
+                "callingDescriptor": "UNKNOWN",
+                "params": {
+                    "parentRecordId": session_id,
+                    "relatedListId": "Service_Deliveries__r",
+                    "listRecordsQuery": {
+                        "fields": [
+                            "Service_Delivery__c.Id",
+                            "Service_Delivery__c.Pa_Service_Participant__c",
+                            "Service_Delivery__c.Pa_Action_Status__c",
+                            "Service_Delivery__c.Pa_No_Action_Reason__c"
+                        ],
+                        "pageSize": 1999,
+                        "pageToken": "0"
+                    }
+                }
+            }]
+        }
+
+        data = self._execute_aura_request('/aura?r=1&aura.RelatedListUi.postRelatedListRecords=1', payload)
+
+        logger.debug(f"getServiceDeliveries response: {_redact_pii(json.dumps(data, ensure_ascii=False))}", stage="aura")
+
+        action = data.get('actions', [{}])[0]
+        if action.get('state') == 'ERROR':
+            raise Exception(f"Salesforce ERROR: {action.get('error')}")
+        return_value = action.get('returnValue')
+        if return_value is None:
+            raise Exception(f"returnValue is None! Action data: {action}")
+
+        deliveries = []
+        for rec in return_value.get('records', []):
+            fields = rec.get('fields', {})
+            deliveries.append({
+                "id": rec.get('id'),
+                "participant": (fields.get('Pa_Service_Participant__c') or {}).get('value'),
+                "status": (fields.get('Pa_Action_Status__c') or {}).get('value'),
+                "reason": (fields.get('Pa_No_Action_Reason__c') or {}).get('value'),
+            })
+        return deliveries
 
     def create_session(self, parent_record_id, start_dt_utc, end_dt_utc):
         payload = {

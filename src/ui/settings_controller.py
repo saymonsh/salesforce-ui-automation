@@ -19,6 +19,7 @@ class SettingsController:
                 "ACT_NU": parm.ACT_NU or "",
                 "URL": parm.URL or "",
                 "TYPE": str(parm.TYPE or ""),
+                "T3_MODE": str(getattr(parm, "T3_MODE", "2") or "2"),
             },
             on_save=self._save_settings,
         )
@@ -32,6 +33,7 @@ class SettingsController:
         parm.update_config("Activity", "NUMBER", fields.act_nu.value)
         parm.update_config("Salesforce", "URL", fields.url.value)
         parm.update_config("Salesforce", "TYPE", fields.type_value.value)
+        parm.update_config("Salesforce", "T3_MODE", fields.t3_mode.value)
 
         try:
             parm.reload()

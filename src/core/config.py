@@ -38,6 +38,13 @@ class Config:
             except (ValueError, TypeError):
                 self.TYPE = None
 
+            # TYPE 3 sub-mode ("2" = compare-only / read-only, "3" = upsert).
+            # Optional and read-only from config.ini — deliberately kept out of
+            # validate() (via .get + fallback, never a bare subscript that would
+            # raise KeyError) so an existing config.ini without it still loads and
+            # it is never a required field.
+            self.T3_MODE = self.parser.get('Salesforce', 'T3_MODE', fallback='2')
+
             self.ACT_DESCRIPTION = self.parser['Activity']['DESCRIPTION']
             self.ACT_NU = self.parser['Activity']['NUMBER']
 

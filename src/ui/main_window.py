@@ -1312,6 +1312,19 @@ class MainView:
         self._refresh_type()
         self._safe_update()
 
+    @staticmethod
+    def _alert_content(message: str) -> ft.Container:
+        """Dialog body container. A short message stays a plain (wrapping) Text; a
+        long multi-line body (the TYPE 3 compare/upsert report) is wrapped in a
+        height-capped scrollable column so it never stretches past the screen."""
+        text = ft.Text(message, selectable=True, color=Color.TEXT_PRIMARY, text_align=ft.TextAlign.RIGHT)
+        if message.count("\n") > 12:
+            return ft.Container(
+                width=420, height=460,
+                content=ft.Column([text], scroll=ft.ScrollMode.AUTO, tight=True),
+            )
+        return ft.Container(width=420, content=text)
+
     def show_alert(self, title: str, message: str, level: str = "info",
                    copy_text: str | None = None, on_closed=None) -> None:
         # While the console terminal is open it owns the screen — errors already
@@ -1331,11 +1344,9 @@ class MainView:
             else Color.BRAND
         )
         # Optional copy affordance — used by the completion dialog to copy the
-        # list of failed / unmatched IDs (the message text is selectable too, but a
-        # one-click copy is the convenience the old summary card provided).
-        # ponytail: the message is a single (wrapping) Text with no scroll — a run
-        # with very many failed IDs makes a tall dialog. Fine for typical runs;
-        # upgrade to a height-capped scroll region if that ever bites.
+        # list of failed / unmatched IDs, or the full TYPE 3 compare/upsert report
+        # (the message text is selectable too, but a one-click copy is the
+        # convenience the old summary card provided).
         actions: list[ft.Control] = []
         if copy_text:
             copy_btn = ft.IconButton(
@@ -1355,10 +1366,10 @@ class MainView:
             # Fixed-width content so the dialog keeps a constant size regardless of
             # message length — short messages no longer collapse to a narrow box and
             # long ones wrap inside the same width instead of stretching the dialog.
-            content=ft.Container(
-                width=420,
-                content=ft.Text(message, selectable=True, color=Color.TEXT_PRIMARY, text_align=ft.TextAlign.RIGHT),
-            ),
+            # A long multi-line body (the TYPE 3 compare report) is capped in height
+            # and scrolls, so it can never grow past the screen; short alerts stay a
+            # plain unconstrained Text.
+            content=self._alert_content(message),
             actions=actions + [ft.TextButton("סגור", on_click=lambda _: self._close_alert(dialog, on_closed))],
             actions_alignment=ft.MainAxisAlignment.END,
         )
