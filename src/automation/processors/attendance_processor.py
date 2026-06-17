@@ -290,6 +290,11 @@ class AttendanceProcessor(BaseProcessor):
         sf_status_by_date = {}
         unreported_dates = set()
         total = len(compare_dates)
+        # Drive the progress ring/percentage off the comparable-dates count (the
+        # same denominator the status line shows). Without these two signals the
+        # ring stays at 0 — only the status text moves (TYPE 1/2 emit the same).
+        if self.signals:
+            self.signals.started.emit(total)
         for idx, date in enumerate(compare_dates):
             verify_running(lambda: self.is_stopped)
             logger.set_context(stage="aura", date=date)
@@ -309,6 +314,8 @@ class AttendanceProcessor(BaseProcessor):
             # mismatch per participant.
             if not any(d["status"] for d in deliveries):
                 unreported_dates.add(date)
+            if self.signals:
+                self.signals.item_processed.emit()
         logger.reset_context()
 
         findings = compute_compare(
@@ -414,10 +421,19 @@ class AttendanceProcessor(BaseProcessor):
         duplicate_dates = []
         seen = set()
 
+        # Drive the progress ring/percentage off the grid-dates count. Emitted per
+        # date right after the status update so the ring mirrors the "N מתוך M"
+        # counter the status line shows; without these the ring stays at 0 and only
+        # the status text moves (TYPE 1/2 emit the same signals).
+        if self.signals:
+            self.signals.started.emit(total_dates)
+
         for idx, date in enumerate(grid_dates):
             verify_running(lambda: self.is_stopped)
             logger.set_context(stage="aura", date=date)
             self.update_ui(status=Status.t3_processing(_display_date(date), idx + 1, total_dates))
+            if self.signals:
+                self.signals.item_processed.emit()
 
             if date in seen:
                 continue  # same date in another grid column — already handled
