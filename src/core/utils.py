@@ -24,6 +24,14 @@ def ltr_isolate(value) -> str:
     return f"{_LRI}{value}{_PDI}"
 
 
+def strip_isolates(text) -> str:
+    """Remove the LTR-isolate controls that ltr_isolate adds. Use when text built
+    for RTL *display* is copied/exported as plain text — the U+2066/U+2069
+    controls are invisible on screen but ride along on paste (and can break a
+    pasted ID in a search box). Kept next to ltr_isolate so the two stay in sync."""
+    return text.replace(_LRI, "").replace(_PDI, "")
+
+
 def verify_running(check_stop_callback):
     """
     Checks if the stop signal is set and raises StopRequestedException if it is.

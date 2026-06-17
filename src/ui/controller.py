@@ -1,4 +1,5 @@
 from src.core.status_messages import Status
+from src.core.utils import strip_isolates
 from src.ui.settings_controller import SettingsController
 from src.ui.worker_manager import WorkerManager
 
@@ -182,19 +183,29 @@ class Controller:
             # for those IDs — so there's one completion surface, not a dialog plus a
             # separate card.
             if summary:
+                body = Status.completion_body(summary)
                 problems = summary.get("problem_ids") or []
-                copy_text = "\n".join(str(x) for x in problems) if problems else None
+                # The TYPE 3 compare/upsert report (summary["sections"]) is multi-
+                # section prose, so make the whole rendered body copyable — but
+                # strip the RTL display isolates so the pasted text is clean. The
+                # legacy single-list path keeps copying just the raw IDs.
+                if summary.get("sections"):
+                    copy_text = strip_isolates(body)
+                elif problems:
+                    copy_text = "\n".join(str(x) for x in problems)
+                else:
+                    copy_text = None
                 if self._handoff_dm is not None:
                     # TYPE 2 ended in handoff: the browser is still embedded for the
                     # operator's manual step. Don't cover it — arm the skipped-IDs
                     # dialog to fire once they click "סיימתי" (close the browser).
                     self.main_view.arm_handoff_summary(
-                        Status.COMPLETED_TITLE, Status.completion_body(summary), "success",
+                        Status.COMPLETED_TITLE, body, "success",
                         copy_text,
                     )
                 else:
                     self.main_view.show_alert(
-                        Status.COMPLETED_TITLE, Status.completion_body(summary), "success",
+                        Status.COMPLETED_TITLE, body, "success",
                         copy_text=copy_text,
                         # Dismissing the completion dialog returns the hero to 'מוכן' —
                         # closing 'הושלם' readies the screen for the next run.

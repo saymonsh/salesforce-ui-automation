@@ -4,10 +4,17 @@ PASSWORD = your_password_here
 SECRET_KEY = your_secret_key_here
 
 [Salesforce]
-# URL to the Salesforce service schedule action
-URL = https://your-salesforce-instance.lightning.force.com/lightning/action/quick/...
+# Target Salesforce URL. For TYPE 3 (attendance) this must be the Service
+# Schedule RECORD page (…/lightning/r/Pa_Service_Schedule__c/<recordId>/view) —
+# not a /lightning/action/quick/ action URL.
+URL = https://your-salesforce-instance.lightning.force.com/lightning/r/Pa_Service_Schedule__c/<recordId>/view
 # Type of operation (e.g., 2)
 TYPE = 2
+# TYPE 3 sub-mode: compare = read-only diff vs the grid (no changes),
+# upsert = update & complete (create missing sessions + sync attendance).
+# Optional; defaults to compare. Usually set from the in-app settings panel.
+# (Legacy "2"/"3" values are still accepted and mapped to compare/upsert.)
+T3_MODE = compare
 
 [Activity]
 DESCRIPTION = Activity Description

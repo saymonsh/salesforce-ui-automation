@@ -52,16 +52,30 @@ class Status:
     def completion_body(summary: dict) -> str:
         """Build the success-dialog body from a run summary dict.
 
-        Shape: ``{"success_text": str, "problems_title": str?, "problem_ids": [..]}``.
-        The success line always shows; the problems block (failed rows in TYPE 1,
-        unmatched IDs in TYPE 3 — they never co-occur) is appended when present.
-        IDs are LTR-isolated so digits render correctly inside the RTL prose.
+        Shape: ``{"success_text": str, "problems_title": str?, "problem_ids": [..],
+        "sections": [{"title": str, "ids": [..]} | {"title": str, "lines": [..]}]}``.
+        The success line always shows; the legacy problems block (failed rows in
+        TYPE 1, unmatched IDs in TYPE 2/3) is appended when present; then any extra
+        ``sections`` (the TYPE 3 compare/upsert report) are appended in order. A
+        section carries either ``ids`` (short tokens joined by " · ", each
+        LTR-isolated) or ``lines`` (pre-formatted strings, one per line — used for
+        rows that already mix Hebrew and isolated numbers). IDs are LTR-isolated so
+        digits render correctly inside the RTL prose.
         """
         body = summary.get("success_text", "")
         title = summary.get("problems_title")
         if title:
             ids = summary.get("problem_ids") or []
             body += "\n\n" + title + "\n" + " · ".join(_iso(str(x)) for x in ids)
+        for sec in summary.get("sections") or []:
+            body += "\n\n" + sec["title"]
+            lines = sec.get("lines")
+            if lines:
+                body += "\n" + "\n".join(lines)
+            else:
+                ids = sec.get("ids") or []
+                if ids:
+                    body += "\n" + " · ".join(_iso(str(x)) for x in ids)
         return body
 
     @staticmethod
@@ -139,6 +153,73 @@ class Status:
         # so this stays short enough never to truncate on the one-line status field.
         return f"שים לב: {_iso(len(missing_ids))} ת.ז. לא אותרו ולא עודכנו — ראה כרטיס סיכום"
 
+    # --- TYPE 3, mode 2 — השוואה בלבד (read-only compare) -------------------
+    @staticmethod
+    def t3_cmp_processing(date_str: str, n: int, total: int) -> str:
+        # "בודק" (checking), not "מעבד" (processing) — reassures the operator that
+        # compare mode only reads and never writes. date_str is Israeli d.m.yyyy.
+        return f"בודק תאריך {_iso(date_str)} ({_iso(n)} מתוך {_iso(total)})"
+
+    @staticmethod
+    def t3_cmp_done(n_diffs: int) -> str:
+        if n_diffs == 0:
+            return "ההשוואה הסתיימה — הגריד תואם למערכת, אין הבדלים"
+        return f"ההשוואה הסתיימה — נמצאו {_iso(n_diffs)} הבדלים (ראה סיכום)"
+
+    @staticmethod
+    def t3_cmp_summary(n_diffs: int) -> str:
+        # Headline line for the completion dialog (read-only — nothing changed).
+        if n_diffs == 0:
+            return "ההשוואה הסתיימה — הגריד תואם למערכת. לא בוצע שום שינוי."
+        return f"ההשוואה הסתיימה — נמצאו {_iso(n_diffs)} הבדלים. לא בוצע שום שינוי במערכת."
+
+    @staticmethod
+    def cmp_dates_only_grid_title(n: int) -> str:
+        return f"תאריכים בגריד שאין להם מפגש במערכת ({_iso(n)}):"
+
+    @staticmethod
+    def cmp_dates_only_sf_title(n: int) -> str:
+        return f"מפגשים במערכת בתאריכים שאינם בגריד ({_iso(n)}):"
+
+    @staticmethod
+    def cmp_unreported_dates_title(n: int) -> str:
+        return f"מפגשים שקיימים אך טרם דווחה בהם נוכחות ({_iso(n)}):"
+
+    @staticmethod
+    def cmp_duplicate_dates_title(n: int) -> str:
+        return f"תאריכים עם יותר ממפגש אחד — לא נבדקו ({_iso(n)}):"
+
+    @staticmethod
+    def cmp_mismatch_title(n: int) -> str:
+        return f"אי-התאמות בנוכחות בין הגריד למערכת ({_iso(n)}):"
+
+    @staticmethod
+    def cmp_mismatch_line(date_str: str, id_number, grid_status: str, sf_status: str | None) -> str:
+        # One mismatch row, pre-formatted (date + ת.ז. isolated, statuses are
+        # Hebrew prose). sf_status None ⇒ no attendance reported in SF for that row.
+        sf_txt = sf_status if sf_status else "לא דווח"
+        return f"{_iso(date_str)} · ת.ז. {_iso(id_number)} — גריד: {grid_status}, מערכת: {sf_txt}"
+
+    @staticmethod
+    def cmp_missing_ids_title(n: int) -> str:
+        return f"ת.ז. בגריד שאינם רשומים בקורס ({_iso(n)}):"
+
+    @staticmethod
+    def cmp_sf_only_title(n: int) -> str:
+        return f"משתתפים רשומים בקורס שאינם בגריד ({_iso(n)}):"
+
+    # --- TYPE 3, mode 3 — עדכון והשלמה (upsert) -----------------------------
+    @staticmethod
+    def t3_upsert_done(created: int, updated: int, unchanged: int) -> str:
+        return f"הסתיים — נוצרו {_iso(created)}, עודכנו {_iso(updated)}, ללא שינוי {_iso(unchanged)}"
+
+    @staticmethod
+    def t3_upsert_summary(created: int, updated: int, unchanged: int) -> str:
+        return (
+            f"נוצרו {_iso(created)} מפגשים, עודכנו {_iso(updated)}, "
+            f"ו-{_iso(unchanged)} כבר היו תואמים. שום דבר אחר לא שונה."
+        )
+
 
 # --------------------------------------------------------------------- self-check
 # Runnable check (no framework): `python -m src.core.status_messages`.
@@ -164,4 +245,20 @@ if __name__ == "__main__":
         "problem_ids": ["322222222"],
     })
     assert "4" in t2 and "נוספו" in t2 and "322222222" in t2, t2
-    print("OK — completion_body builds clean + partial run summaries")
+
+    # TYPE 3 compare report: multi-section body with both `ids` and `lines`.
+    cmp = Status.completion_body({
+        "success_text": Status.t3_cmp_summary(2),
+        "sections": [
+            {"title": Status.cmp_dates_only_grid_title(1), "ids": ["18.1.2026"]},
+            {"title": Status.cmp_mismatch_title(1),
+             "lines": [Status.cmp_mismatch_line("18.1.2026", "311111111", "נוכח", None)]},
+            {"title": Status.cmp_sf_only_title(1), "ids": ["322222222"]},
+        ],
+    })
+    assert "לא בוצע" in cmp, cmp                      # read-only reassurance present
+    assert "18.1.2026" in cmp and "311111111" in cmp, cmp
+    assert "לא דווח" in cmp and "322222222" in cmp, cmp
+    # empty `sections`/`ids` must not break or emit a dangling title:
+    assert Status.completion_body({"success_text": "x", "sections": []}) == "x"
+    print("OK — completion_body builds clean + partial + compare-report summaries")
