@@ -1390,9 +1390,14 @@ class MainView:
 
         Used both when the operator finishes a TYPE 2 handoff and when the
         completion dialog is dismissed — closing the 'הושלם' screen should leave
-        it ready for the next run ('מוכן'), not a stale 'done' marker. Does NOT
-        touch the action button: its idle ▶ is already set by set_running(False)
-        on finish, and the handoff path calls set_running(False) right after this."""
+        it ready for the next run ('מוכן'), not a stale 'done' marker.
+
+        Also repaints the action button to its idle ▶/brand-red look: on finish
+        set_running(False) runs while _action_required is still set (a warning
+        end state — e.g. TYPE 3 compare-with-diffs or upsert-with-missing-ids),
+        so it leaves the button amber. This is the canonical 'back to ready'
+        point that clears _action_required, so it must own the button too — the
+        handoff path's set_running(False) right after lands on the same idle look."""
         self._action_required = False
         label = _TYPE_META.get(self._type_value, ("", None))[0]
         self.status_text.value = f"מצב: {label}" if label else "מוכן"
@@ -1403,6 +1408,10 @@ class MainView:
         self.progress_ring.value = self.linear.value = 0
         self.counter_text.value = ""
         self.status_dot.bgcolor = Color.TEXT_TERTIARY
+        self.action_circle.bgcolor = Color.BRAND
+        self.action_circle.shadow.color = ft.Colors.with_opacity(0.35, Color.BRAND)
+        self.action_circle.content = self.play_icon  # triangle when idle
+        self.action_circle.tooltip = "הפעל תהליך"
 
     async def _copy_alert_ids(self, btn, text: str) -> None:
         """Copy the alert's IDs (raw, one per line) and flash the copy button."""
