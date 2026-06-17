@@ -1,4 +1,5 @@
 from src.core.status_messages import Status
+from src.core.utils import strip_isolates
 from src.ui.settings_controller import SettingsController
 from src.ui.worker_manager import WorkerManager
 
@@ -185,10 +186,11 @@ class Controller:
                 body = Status.completion_body(summary)
                 problems = summary.get("problem_ids") or []
                 # The TYPE 3 compare/upsert report (summary["sections"]) is multi-
-                # section prose, so make the whole rendered body copyable; the
+                # section prose, so make the whole rendered body copyable — but
+                # strip the RTL display isolates so the pasted text is clean. The
                 # legacy single-list path keeps copying just the raw IDs.
                 if summary.get("sections"):
-                    copy_text = body
+                    copy_text = strip_isolates(body)
                 elif problems:
                     copy_text = "\n".join(str(x) for x in problems)
                 else:
