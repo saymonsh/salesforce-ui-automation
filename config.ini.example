@@ -10,10 +10,11 @@ SECRET_KEY = your_secret_key_here
 URL = https://your-salesforce-instance.lightning.force.com/lightning/r/Pa_Service_Schedule__c/<recordId>/view
 # Type of operation (e.g., 2)
 TYPE = 2
-# TYPE 3 sub-mode: 2 = compare only (read-only diff vs the grid, no changes),
-# 3 = update & complete (create missing sessions + sync attendance). Optional;
-# defaults to 2. Usually set from the in-app settings panel.
-T3_MODE = 2
+# TYPE 3 sub-mode: compare = read-only diff vs the grid (no changes),
+# upsert = update & complete (create missing sessions + sync attendance).
+# Optional; defaults to compare. Usually set from the in-app settings panel.
+# (Legacy "2"/"3" values are still accepted and mapped to compare/upsert.)
+T3_MODE = compare
 
 [Activity]
 DESCRIPTION = Activity Description

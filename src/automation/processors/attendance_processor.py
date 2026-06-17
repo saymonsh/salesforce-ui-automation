@@ -6,6 +6,7 @@ from src.core.utils import smart_sleep, verify_running
 from src.automation.processors.base_processor import BaseProcessor
 from src.automation.api_client import SalesforceApiClient
 from src.core.config import config_instance as parm
+from src.core.constants import T3_MODE_COMPARE, T3_MODE_UPSERT
 from src.core.exceptions import StopRequestedException
 from src.core.logger import logger
 from src.core.status_messages import Status
@@ -174,9 +175,9 @@ if (!window.__auraSnifferInjected) {
 
 class AttendanceProcessor(BaseProcessor):
     """TYPE 3. Dispatches on parm.T3_MODE:
-      * "2" — compare only (read-only): diff the grid against existing SF
-        attendance and report. Issues ZERO writes (never opens the SD flow).
-      * "3" — upsert: create missing sessions, fill/update attendance to match
+      * T3_MODE_COMPARE — compare only (read-only): diff the grid against existing
+        SF attendance and report. Issues ZERO writes (never opens the SD flow).
+      * T3_MODE_UPSERT — create missing sessions, fill/update attendance to match
         the grid (delta only), mirroring the manual UI 1:1.
     """
 
@@ -188,7 +189,7 @@ class AttendanceProcessor(BaseProcessor):
         smart_sleep(delay, lambda: self.is_stopped)
 
     def process(self, source):
-        mode = str(getattr(parm, "T3_MODE", "2"))
+        mode = getattr(parm, "T3_MODE", T3_MODE_COMPARE)
         try:
             # 1. Parent record id from the configured URL.
             match = re.search(r'(?:recordId=|Pa_Service_Schedule__c/)([a-zA-Z0-9]+)', parm.URL)
@@ -219,7 +220,7 @@ class AttendanceProcessor(BaseProcessor):
             logger.info(f"participants fetched: {len(sfdc_participants_map)}", stage="aura")
             verify_running(lambda: self.is_stopped)
 
-            if mode == "3":
+            if mode == T3_MODE_UPSERT:
                 return self._run_upsert(api_client, parent_record_id, excel_data, sfdc_participants_map)
             return self._run_compare(api_client, parent_record_id, excel_data, sfdc_participants_map)
 

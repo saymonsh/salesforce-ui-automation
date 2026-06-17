@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import flet as ft
 
+from src.core.constants import T3_MODE_COMPARE, T3_MODE_UPSERT
 from src.ui.theme import (
     Color, Radius, Space, Type, SegmentedSelect, body_text, heading, primary_button, text_field,
 )
@@ -17,10 +18,10 @@ TYPE_OPTIONS = [
 ]
 
 # TYPE 3 sub-mode options, shown only when TYPE 3 is selected. Keys are the
-# T3_MODE config values: "2" = read-only compare, "3" = update-and-complete.
+# T3_MODE config values (read-only compare vs update-and-complete).
 T3_MODE_OPTIONS = [
-    ("2", "השוואה בלבד"),
-    ("3", "עדכון והשלמה"),
+    (T3_MODE_COMPARE, "השוואה בלבד"),
+    (T3_MODE_UPSERT, "עדכון והשלמה"),
 ]
 
 
@@ -69,7 +70,7 @@ def build_settings_view(
     # TYPE 3 only: choose between read-only compare ("2") and upsert ("3").
     # Defined before _on_type_change so the callback can toggle its visibility.
     t3_mode_select = SegmentedSelect(
-        "מצב נוכחות", T3_MODE_OPTIONS, initial_values.get("T3_MODE", "2") or "2",
+        "מצב נוכחות", T3_MODE_OPTIONS, initial_values.get("T3_MODE", T3_MODE_COMPARE) or T3_MODE_COMPARE,
     )
     t3_mode_row = ft.Container(
         content=row((t3_mode_select.control, 12)),

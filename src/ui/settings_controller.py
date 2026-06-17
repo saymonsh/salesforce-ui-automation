@@ -1,4 +1,5 @@
 from src.core.config import config_instance as parm
+from src.core.constants import T3_MODE_COMPARE
 from src.ui.settings_window import SettingsFields, build_settings_view
 
 
@@ -19,7 +20,7 @@ class SettingsController:
                 "ACT_NU": parm.ACT_NU or "",
                 "URL": parm.URL or "",
                 "TYPE": str(parm.TYPE or ""),
-                "T3_MODE": str(getattr(parm, "T3_MODE", "2") or "2"),
+                "T3_MODE": getattr(parm, "T3_MODE", T3_MODE_COMPARE) or T3_MODE_COMPARE,
             },
             on_save=self._save_settings,
         )

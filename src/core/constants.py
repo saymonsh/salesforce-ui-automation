@@ -9,3 +9,8 @@ APP_WINDOW_TITLE = "כיוון — Salesforce Automation"
 # Salesforce, or login — a throwaway window is embedded in place of Chrome so the
 # owned-overlay panel is exercised too. Single source of truth; read at import.
 DRY_RUN = "--dry_run" in sys.argv
+
+# TYPE 3 (attendance) sub-modes — the value stored in [Salesforce] T3_MODE.
+# (There is deliberately no "mode 1": the old blind-create behaviour was removed.)
+T3_MODE_COMPARE = "compare"  # read-only diff of the grid vs Salesforce, zero writes
+T3_MODE_UPSERT = "upsert"    # create missing sessions + sync attendance to the grid

@@ -2,6 +2,9 @@ import configparser
 import os
 import sys
 
+from src.core.constants import T3_MODE_COMPARE, T3_MODE_UPSERT
+
+
 class Config:
     _instance = None
 
@@ -38,12 +41,13 @@ class Config:
             except (ValueError, TypeError):
                 self.TYPE = None
 
-            # TYPE 3 sub-mode ("2" = compare-only / read-only, "3" = upsert).
-            # Optional and read-only from config.ini — deliberately kept out of
-            # validate() (via .get + fallback, never a bare subscript that would
-            # raise KeyError) so an existing config.ini without it still loads and
-            # it is never a required field.
-            self.T3_MODE = self.parser.get('Salesforce', 'T3_MODE', fallback='2')
+            # TYPE 3 sub-mode (T3_MODE_COMPARE / T3_MODE_UPSERT). Optional and
+            # read-only from config.ini — deliberately kept out of validate() (via
+            # .get + fallback, never a bare subscript that would raise KeyError) so
+            # an existing config.ini without it still loads and it is never required.
+            # Back-compat: an earlier build stored "2"/"3" — map those to the names.
+            _t3_mode = self.parser.get('Salesforce', 'T3_MODE', fallback=T3_MODE_COMPARE)
+            self.T3_MODE = {"2": T3_MODE_COMPARE, "3": T3_MODE_UPSERT}.get(_t3_mode, _t3_mode)
 
             self.ACT_DESCRIPTION = self.parser['Activity']['DESCRIPTION']
             self.ACT_NU = self.parser['Activity']['NUMBER']
