@@ -123,6 +123,7 @@ def _hunt(needle: str = NEEDLE) -> None:
             logger.info(f"[hunt] {root} → failed: {type(e).__name__}: {e}", stage="netfree-probe")
     _programs_by_date()
     _history_hunt()
+    _filesystem_hunt()
 
 
 def _programs_by_date() -> None:
@@ -192,6 +193,33 @@ def _history_hunt(needle: str = NEEDLE) -> None:
         return
     body = "\n".join(f"  {h}" for h in hits) if hits else "  (no proxy/env-setting commands found)"
     logger.info(f"[hunt] PowerShell history (proxy/env commands):\n{body}", stage="netfree-probe")
+
+
+def _filesystem_hunt(needle: str = NEEDLE) -> None:
+    """Search the user profile for a file containing the proxy IP.
+
+    Last automated lead: a setup script (.ps1/.bat/.reg/…) run once to set the var
+    would still hold the literal IP. ``findstr /s`` is the fast native tool. Our own
+    repo legitimately contains the IP now, so its hits are filtered out.
+    """
+    userprofile = os.environ.get("USERPROFILE")
+    if not userprofile:
+        logger.info("[hunt] no USERPROFILE — skipping file search", stage="netfree-probe")
+        return
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__))).lower()
+    exts = ("ps1", "bat", "cmd", "reg", "vbs", "txt", "ini", "env", "config", "json", "py")
+    specs = [os.path.join(userprofile, f"*.{e}") for e in exts]
+    try:
+        r = subprocess.run(["findstr", "/s", "/i", "/m", needle, *specs],
+                           capture_output=True, text=True, timeout=120)
+        files = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+        files = [f for f in files if repo not in f.lower()]  # drop our own repo
+        body = "\n".join(f"  {f}" for f in files) if files else "  (none outside this repo)"
+    except subprocess.TimeoutExpired:
+        body = "  (timed out at 120s)"
+    except Exception as e:
+        body = f"  failed: {type(e).__name__}: {e}"
+    logger.info(f"[hunt] files under USERPROFILE containing {needle}:\n{body}", stage="netfree-probe")
 
 
 def _remove_env_proxy() -> None:
