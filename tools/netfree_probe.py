@@ -124,6 +124,38 @@ def _direct_opener(ctx: ssl.SSLContext | None = None) -> urllib.request.OpenerDi
     )
 
 
+def _envproxy_source_probe() -> None:
+    """Pinpoint WHERE the HTTP(S)_PROXY env var is defined: User vs Machine scope.
+
+    `os.environ` shows the value but not its origin. Persistent env vars live in the
+    registry — User scope at HKCU\\Environment, Machine scope at HKLM\\…\\Session
+    Manager\\Environment. Reporting which scope carries it tells us who set the stray
+    proxy and where to remove it (Machine scope ⇒ pushed by org/admin tooling).
+    """
+    import winreg
+
+    names = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
+    scopes = [
+        ("User (HKCU\\Environment)", winreg.HKEY_CURRENT_USER, r"Environment"),
+        ("Machine (HKLM\\…\\Session Manager\\Environment)", winreg.HKEY_LOCAL_MACHINE,
+         r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+    ]
+    for label, hive, sub in scopes:
+        try:
+            k = winreg.OpenKey(hive, sub)
+        except OSError as e:
+            logger.info(f"[envproxy-source] {label}: can't open ({e})", stage="netfree-probe")
+            continue
+        found = {}
+        for n in names:
+            try:
+                found[n] = winreg.QueryValueEx(k, n)[0]
+            except OSError:
+                pass
+        winreg.CloseKey(k)
+        logger.info(f"[envproxy-source] {label}: {found or 'none'}", stage="netfree-probe")
+
+
 def _proxies_from_wininet(server: str) -> dict:
     """Turn a WinINET ``ProxyServer`` value into a urllib proxies dict.
 
@@ -151,6 +183,7 @@ def _proxy_config_probe() -> str | None:
     env = {k: os.environ.get(k) for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")}
     logger.info(f"[proxy-config] proxy env vars={ {k: v for k, v in env.items() if v} }",
                 stage="netfree-probe")
+    _envproxy_source_probe()
     try:
         import winreg
         key = winreg.OpenKey(
