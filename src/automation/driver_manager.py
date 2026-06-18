@@ -82,25 +82,6 @@ class DriverManager:
         ``create_driver()`` on a free port it picks itself."""
         return None
 
-    @staticmethod
-    def _pump_output(proc):
-        """Forward each chromedriver output line into the debug channel.
-
-        chromedriver is a separate process; its raw lines are passed through
-        verbatim (no timestamp/level prefix) so the exact driver output is
-        visible in the feed/console. Selenium's Service opens the pipe in binary
-        mode, so decode defensively.
-        """
-        try:
-            for line in proc.stdout:
-                if isinstance(line, (bytes, bytearray)):
-                    line = line.decode("utf-8", "replace")
-                line = line.rstrip("\n")
-                if line.strip():
-                    logger.debug(line, stage="chromedriver")
-        except Exception:
-            pass
-
     def create_driver(self):
         # Strip the proxy BEFORE building the driver (see setup_proxy docstring).
         self.setup_proxy()
@@ -139,7 +120,14 @@ class DriverManager:
         # downloads — the chromedriver matching the installed Chrome, then Service
         # launches it on a free port. No hardcoded path, no version pin, no fixed
         # port. The NO_PROXY set above keeps that localhost connection direct.
-        service = Service(log_output=subprocess.PIPE)
+        #
+        # log_output=DEVNULL — do NOT pipe chromedriver's output. A PIPE nobody
+        # drains fast enough fills its OS buffer, blocks chromedriver, and every
+        # WebDriver call then hangs in a blocking socket read — which also wedges
+        # the cooperative Stop (it can't poll the stop flag mid-read). DEVNULL is
+        # the safe choice; chromedriver chatter isn't worth that risk. (For one-off
+        # driver debugging, point log_output at a file instead — never a PIPE.)
+        service = Service(log_output=subprocess.DEVNULL)
         try:
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
         except Exception as e:
@@ -156,10 +144,6 @@ class DriverManager:
         # Hand the chromedriver process to the rest of the lifecycle: the embedding
         # locates Chrome by this PID, and close_driver terminates it as a watchdog.
         self.chromedriver_process = self.driver.service.process
-        if self.chromedriver_process and self.chromedriver_process.stdout:
-            threading.Thread(
-                target=self._pump_output, args=(self.chromedriver_process,), daemon=True
-            ).start()
         logger.info("chrome launched", stage="driver")
         self._report_browser_window()
         return self.driver
