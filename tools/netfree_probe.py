@@ -156,6 +156,55 @@ def _envproxy_source_probe() -> None:
         logger.info(f"[envproxy-source] {label}: {found or 'none'}", stage="netfree-probe")
 
 
+def _envproxy_origin_probe(needle: str = "49.13.92.53") -> None:
+    """Forensic clues for what set the stray env proxy.
+
+    You usually can't name the process that wrote a registry value after the fact,
+    but two clues narrow it: (1) WHEN ``HKCU\\Environment`` was last modified — the
+    proxy was set at/before then, so cross-reference installs/downloads from that
+    window; (2) whether the proxy IP appears in any autostart entry (a tool that
+    re-applies it on login). For a full sweep, run ``reg query`` (see chat).
+    """
+    import datetime
+    import winreg
+
+    try:
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment")
+        # QueryInfoKey's 3rd field: 100-ns intervals since 1601-01-01 (FILETIME).
+        when = (datetime.datetime(1601, 1, 1)
+                + datetime.timedelta(microseconds=winreg.QueryInfoKey(k)[2] / 10))
+        winreg.CloseKey(k)
+        logger.info(f"[envproxy-origin] HKCU\\Environment last modified: {when} UTC",
+                    stage="netfree-probe")
+    except OSError as e:
+        logger.info(f"[envproxy-origin] couldn't read Environment mtime: {e}", stage="netfree-probe")
+
+    runkeys = [
+        (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+        (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\RunOnce"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\RunOnce"),
+    ]
+    hits = []
+    for hive, sub in runkeys:
+        try:
+            k = winreg.OpenKey(hive, sub)
+        except OSError:
+            continue
+        i = 0
+        while True:
+            try:
+                name, val, _ = winreg.EnumValue(k, i)
+            except OSError:
+                break
+            if needle in str(val):
+                hits.append(f"{sub}\\{name} = {val}")
+            i += 1
+        winreg.CloseKey(k)
+    logger.info(f"[envproxy-origin] autostart entries referencing {needle}: {hits or 'none'}",
+                stage="netfree-probe")
+
+
 def _proxies_from_wininet(server: str) -> dict:
     """Turn a WinINET ``ProxyServer`` value into a urllib proxies dict.
 
@@ -184,6 +233,7 @@ def _proxy_config_probe() -> str | None:
     logger.info(f"[proxy-config] proxy env vars={ {k: v for k, v in env.items() if v} }",
                 stage="netfree-probe")
     _envproxy_source_probe()
+    _envproxy_origin_probe()
     try:
         import winreg
         key = winreg.OpenKey(
