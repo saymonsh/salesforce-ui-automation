@@ -39,8 +39,8 @@ read-only viewer reached over HTTPS from an **unfiltered** machine.
 | `src/ui/worker.py` | Fires `push_async()` after `finished.emit` — so even a crash traceback is pushed. |
 | `tests/test_logger_file_sink.py` | Self-check: file captures `DEBUG` while verbose is off. |
 | `tests/test_log_mirror.py` | Self-check: the `scp` command keeps its non-interactive / bounded flags (guards against the silent-hang regression). |
-| `tools/netfree_probe.py` | **The experiment.** Deliberately exercises the conventional driver-acquisition paths production avoids — system-store vs `certifi` HTTPS to the Chrome-for-Testing CDN + metadata, and (gated) Selenium Manager driving real Chrome. Emits a one-word verdict per probe into the mirrored log. |
-| `tests/test_netfree_probe.py` | Self-check: `classify()` distinguishes CERT / SSL / NETFAIL / BLOCKPAGE / OK / HTTP_nnn. |
+| `tools/netfree_probe.py` | Proxy/env diagnostic (refocused once the network/cert question was solved). Dumps the proxy config, locates the stray `HTTP_PROXY` env var's scope + write time, sweeps the whole registry for the proxy IP, and lists installed programs by date — to find what set it. (The earlier network/cert/Selenium probes did their job and were removed; their findings live in the result sections below.) |
+| `tests/test_netfree_probe.py` | Self-check: the FILETIME→datetime conversion (used to date the env var) has the right epoch and scale. |
 
 ## Components (server repo — `vultr-configs`)
 
@@ -59,28 +59,19 @@ git checkout diag/netfree-machine
 python -m src.main      # run once — a chromedriver failure here is exactly what we want
 ```
 
-Or run the isolated experiment instead of (or before) a full run — it tests the
-conventional paths production avoids and writes a verdict per hypothesis:
+Or run the focused proxy/env diagnostic (no full run needed):
 
 ```powershell
-python -m tools.netfree_probe                       # network probes only (safe)
-python -m tools.netfree_probe --with-selenium-manager  # also drive real Chrome
+python -m tools.netfree_probe
 ```
 
-Then from an unfiltered machine open **`https://shalom.5784.link/api/netlog`**
-(Basic auth = the dashboard credentials; not stored in this repo).
+It prints the proxy config, the stray env var's scope + `HKCU\Environment` write
+time, a full-registry sweep for the proxy IP, and installed programs by date — to
+find what set the env var. Then from an unfiltered machine open
+**`https://shalom.5784.link/api/netlog`** (Basic auth = the dashboard credentials).
 
-### Reading the probe verdicts
-
-- **`OK` direct but `CERT` on certifi** → a cert-bundle problem. Fix is one line —
-  `truststore.inject_into_ssl()` (py3.10+) — and the hardcoded pin can go.
-- **`OK` on `system-proxy` but `NETFAIL` on `direct`** → Python wasn't using the
-  proxy the browser uses. Not certs, not a hard block — route downloads through
-  the system proxy and the conventional paths work.
-- **`NETFAIL` on BOTH proxy modes for BOTH CA bundles** → a real connection-level
-  block of that host from Python; keep pre-staging the artifact.
-- **`OK` on the Selenium Manager probe** → the modern built-in path works there;
-  the hardcoded chromedriver + port 9515 were never needed.
+The result sections below are the **history** of how the root cause was found (with
+the earlier multi-verdict probe, since removed). Read top-down; the latest is first.
 
 ### Run 2 result (2026-06-18) — DECISIVE: the system proxy is the whole problem
 
