@@ -9,8 +9,9 @@ which the SSH mirror already carries off the machine (see DIAG_NETFREE.md).
 
 Run on the filtered machine from the project root::
 
-    python -m tools.netfree_probe                      # network probes only (safe)
+    python -m tools.netfree_probe                          # network probes only (safe)
     python -m tools.netfree_probe --with-selenium-manager  # also drive real Chrome
+    python -m tools.netfree_probe --with-selenium-manager --cold  # force a fresh driver DOWNLOAD
 
 Then read the result on an unfiltered machine at  https://shalom.5784.link/api/netlog
 
@@ -115,13 +116,27 @@ def _http_probe(label: str, url: str, ctx: ssl.SSLContext, headers: dict | None,
     return verdict
 
 
-def _selenium_manager_probe() -> None:
+def _selenium_manager_probe(cold: bool = False) -> None:
     """Let Selenium 4.6+ resolve & download the driver itself (no Service/path).
 
     This is THE direct test of the modern conventional path. Gated behind a flag
     because, unlike the network probes, it launches real Chrome. Headless so no
     window appears; the full traceback is logged on any failure.
+
+    ``cold=True`` wipes the Selenium Manager cache first, forcing an actual DOWNLOAD
+    over the network — otherwise a cached driver makes this prove only "can launch",
+    not "can download here" (the part that touches the filter).
     """
+    if cold:
+        import shutil
+        cache = os.path.join(os.path.expanduser("~"), ".cache", "selenium")
+        try:
+            shutil.rmtree(cache)
+            logger.info(f"cold start: wiped {cache}", stage="netfree-probe")
+        except FileNotFoundError:
+            logger.info(f"cold start: no cache at {cache} (already cold)", stage="netfree-probe")
+        except OSError as e:
+            logger.info(f"cold start: couldn't wipe cache: {e}", stage="netfree-probe")
     logger.info("driving Selenium Manager (real Chrome, headless)…", stage="netfree-probe")
     # Mirror production's setup_proxy(): strip proxy env + exempt localhost. Without
     # this the WebDriver call to the local chromedriver gets routed through the
@@ -189,7 +204,7 @@ def main(argv: list[str]) -> None:
                     stage="netfree-probe")
 
     if "--with-selenium-manager" in argv:
-        _selenium_manager_probe()
+        _selenium_manager_probe(cold="--cold" in argv)
     else:
         logger.info("selenium-manager probe skipped (pass --with-selenium-manager to run it)",
                     stage="netfree-probe")

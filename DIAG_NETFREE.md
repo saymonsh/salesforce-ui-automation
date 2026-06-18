@@ -82,6 +82,39 @@ Then from an unfiltered machine open **`https://shalom.5784.link/api/netlog`**
 - **`OK` on the Selenium Manager probe** → the modern built-in path works there;
   the hardcoded chromedriver + port 9515 were never needed.
 
+### Run 2 result (2026-06-18) — DECISIVE: the system proxy is the whole problem
+
+```
+getproxies()={'https':'http://49.13.92.53:1919','http':'http://49.13.92.53:1919'}
+[OK]      binary-cdn  (system store, direct)        status=206
+[OK]      metadata-json (system store, direct)      status=200
+[NETFAIL] binary-cdn  (system store, system-proxy)  connection closed
+[NETFAIL] metadata-json (system store, system-proxy) connection closed
+[OK]      binary-cdn  (certifi bundle, direct)      status=206
+[NETFAIL] binary-cdn  (certifi bundle, system-proxy) connection closed
+[OK]      selenium-manager — Chrome 149 launched via auto-resolved driver
+```
+
+**Every assumption was wrong.** It was never certs, never blocked URLs, never the
+port. The machine has a system proxy configured (`49.13.92.53:1919` — Netfree's
+proxy). Routing through it closes the connection; connecting **direct bypasses it
+and reaches the open internet** (both CA bundles, binary + JSON, all `OK`).
+Selenium Manager — the modern conventional path — launches Chrome 149 fine once
+the proxy is stripped. So:
+
+- `webdriver-manager` crashed because `requests` honours `getproxies()` → the
+  Netfree proxy → closed connection. Bypass the proxy and it works.
+- The hardcoded `C:\chromedriver` path "worked" only by avoiding downloads
+  entirely; port 9515 was a confound. The real fix all along was `setup_proxy()`
+  stripping the proxy.
+- **The normal methods are viable here.** The hardcoded path + port 9515 can go,
+  and Selenium Manager can own driver acquisition + version-matching — *provided*
+  its download runs direct (proxy stripped).
+
+**Still open:** the Selenium Manager `OK` used a *cached* driver (launched in ~1s).
+Re-run with `--cold` to wipe the cache and prove a fresh DOWNLOAD also works on
+this machine before retiring the hardcoded path.
+
 ### Run 1 result (2026-06-18) — cert theory falsified
 
 All three network probes returned `NETFAIL` (`Remote end closed connection
