@@ -236,19 +236,21 @@ class DriverManager:
         This is also the clean shutdown for the TYPE 2 handoff once the operator
         is done (the controller calls it on the driver it kept alive)."""
         if self.driver:
-            # driver.quit() can block indefinitely if chromedriver is wedged, and
-            # this runs on the UI thread (handoff "done" / starting a new run) — a
-            # hang would freeze the app with no feedback (#8). Bound it with a
-            # watchdog: give quit() a few seconds, then fall through to force-
-            # terminate chromedriver below (which also kills Chrome and frees the
-            # port) whether or not quit() returned.
+            # driver.quit() can block (and with Service it WAITS for chromedriver to
+            # stop — ~2.5s of graceful teardown), and this also runs on the UI thread
+            # (handoff "done" / starting a new run) — a long wait feels like a freeze
+            # (#8). The graceful part that matters (DELETE /session → Chrome closes +
+            # cleans its profile) happens early; the slow tail is the service-stop
+            # wait, which our terminate() below makes redundant. So bound quit() to a
+            # short window, then terminate chromedriver (which also closes Chrome) —
+            # snappy close, profile still cleaned in the common case.
             drv = self.driver
             quitter = threading.Thread(target=self._quit_driver_quiet, args=(drv,), daemon=True)
             tq = time.monotonic()
             quitter.start()
-            quitter.join(timeout=5)
-            # Whether quit() returned (~2-3s for a graceful close) or hit the watchdog
-            # (wedged chromedriver) — debug only, for diagnosing the #8 freeze path.
+            quitter.join(timeout=1.5)
+            # Whether quit() returned or hit the watchdog (wedged / slow service-stop)
+            # — debug only, for diagnosing the #8 freeze path.
             logger.debug(
                 f"driver.quit() {'timed out at watchdog' if quitter.is_alive() else 'returned'} "
                 f"in {time.monotonic() - tq:.1f}s", stage="driver")
