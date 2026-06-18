@@ -122,11 +122,33 @@ policy gap the org can close at any time; an approach whose startup depends on i
 is fragile. The pre-staged driver needs zero egress to launch — keep it as the
 robust core; treat any direct download (e.g. an updater) as non-fatal convenience.
 
-**Open: is the proxy path actually a CERTS gate?** The through-proxy failures
-close *before* any cert exchange — but that's also what plaintext-to-a-TLS-proxy
-looks like, so certs aren't ruled out there. `_proxy_tls_probe()` handshakes TLS
-straight at the proxy: `TLS-OK (system) + CERT (certifi)` ⇒ certs ARE the gate for
-the proxy path; `NOT-TLS` on both ⇒ plaintext proxy, not certs.
+**Resolved (Runs 3–4): NOT certs, on either layer.** A TLS handshake straight at
+the proxy timed out IDENTICALLY under the system store and certifi — the system
+store trusts the Netfree root, so if a cert were the gate it would have verified;
+instead neither got as far as a cert. A raw plaintext CONNECT (even with a browser
+User-Agent) got `[CONNECT-SILENT]` — zero bytes, then close. So the proxy
+(`49.13.92.53:1919`) accepts TCP but refuses to talk to Python at all: no cert
+negotiation, no 407, no redirect, no UA sensitivity. It's a Netfree
+client-identity black box (per-connection token / fingerprint / local agent) that
+the browser satisfies and a generic client can't.
+
+## Conclusion
+
+- **It was never certs, never blocked URLs, never the port.** The only thing that
+  breaks the conventional paths is the Netfree system proxy silently dropping
+  non-Netfree clients. Connecting **direct** bypasses it and reaches the open
+  internet — `webdriver-manager` and Selenium Manager (incl. a cold download) both
+  work direct.
+- **Going through the proxy from Python is a dead end** without reverse-engineering
+  Netfree's client integration (low ROI, fragile, likely against ToS). Don't.
+- **Direct = unfiltered = bypassing a deliberate org policy on a managed machine.**
+  The pre-staged `C:\chromedriver` driver needs zero egress to launch, so it's the
+  robust, policy-neutral core. The hardcoded path + `setup_proxy()` were *right* —
+  just for the real reason (proxy), not the folklore (port 9515 / certs).
+- **Recommended production stance:** keep the pre-staged driver as the launch core
+  (don't refactor the lifecycle); optionally add a direct-download updater to kill
+  version-drift toil, treating its direct egress as non-fatal convenience; and fix
+  the cargo-cult comments so the 9515/cert folklore doesn't outlive this branch.
 
 ### Run 1 result (2026-06-18) — cert theory falsified
 
