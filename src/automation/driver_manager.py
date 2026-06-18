@@ -7,6 +7,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from src.automation.win_window import (
     find_chrome_window,
+    find_offscreen_chrome_window,
     find_window_by_title,
     reframe_as_owned,
 )
@@ -58,6 +59,11 @@ class DriverManager:
         # the off-screen window poll below honour the Stop button instead of
         # blocking on a bare sleep — None means "no check" (behaves as before).
         self.check_stop = None
+        # The embed handoff runs from two racers — a concurrent off-screen poller
+        # (kills the taskbar flash) and the post-build pid-based fallback. This
+        # guards it so only the first to find the window wins.
+        self._embed_lock = threading.Lock()
+        self._embedded = False
 
     @staticmethod
     def setup_proxy():
@@ -129,6 +135,16 @@ class DriverManager:
         # the cooperative Stop (it can't poll the stop flag mid-read). DEVNULL is
         # the safe choice; chromedriver chatter isn't worth that risk. (For one-off
         # driver debugging, point log_output at a file instead — never a PIPE.)
+        # Catch the taskbar flash: webdriver.Chrome() below takes ~2-3s and Chrome's
+        # window becomes visible (with a taskbar button) partway through — but we
+        # can't reframe it until the call returns and yields the pid. So start a
+        # concurrent poller that finds the window by its off-screen position (no pid
+        # needed) and reframes it the instant it appears, mid-build. The post-build
+        # pid path stays as the fallback; _embed_window lets only the first win.
+        self._embedded = False
+        if self.on_browser_ready:
+            threading.Thread(target=self._early_embed, args=(t0,), daemon=True).start()
+
         service = Service(log_output=subprocess.DEVNULL)
         try:
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
@@ -142,6 +158,7 @@ class DriverManager:
                 "this), or place a matching chromedriver on PATH / set SE_CHROMEDRIVER.",
                 stage="driver", exc=True,
             )
+            self._embedded = True  # stop the concurrent poller embedding a dying window
             raise
         # Hand the chromedriver process to the rest of the lifecycle: the embedding
         # locates Chrome by this PID, and close_driver terminates it as a watchdog.
@@ -151,45 +168,20 @@ class DriverManager:
         return self.driver
 
     # ------------------------------------------------------------- overlay handoff
-    def _report_browser_window(self, t0=None):
-        """Locate Chrome's OS window and hand its handle to the UI (issue #19).
-
-        Best-effort and optional: if no ``on_browser_ready`` sink is wired, or the
-        window can't be found, the run proceeds with no embedded panel. Finding it
-        can take a beat after the session is created, so we poll briefly.
-        """
-        if not self.on_browser_ready:
-            return
-        pid = getattr(self.chromedriver_process, "pid", None)
-        if not pid:
-            return
-        hwnd = None
-        tries = 0
-        for _ in range(80):  # up to ~8s for the window to materialise
-            tries += 1
-            hwnd = find_chrome_window(pid)
-            if hwnd:
-                break
-            # Cooperative wait: honours the Stop button mid-poll (raises
-            # StopRequestedException), unlike a bare sleep — see CLAUDE.md (#6).
-            smart_sleep(0.1, self.check_stop, interval=0.1)
+    def _embed_window(self, hwnd, t0=None):
+        """Reframe Chrome as a frameless owned tool-window (drops the taskbar button
+        via ITaskbarList::DeleteTab — no hide, so no page-stall risk) and hand the
+        handle to the UI. Idempotent: the concurrent off-screen poller and the
+        post-build pid fallback both call this; the lock lets only the first win."""
+        with self._embed_lock:
+            if self._embedded:
+                return
+            self._embedded = True
         self.chrome_hwnd = hwnd
-        if not hwnd:
-            logger.debug("chrome window not found — no embedded panel", stage="driver")
-            return
-        if t0 is not None:  # diag: taskbar-flash hunt — when did we find it after build start?
-            logger.info(f"chrome window found after {tries} poll(s), +{time.monotonic() - t0:.2f}s",
-                        stage="driver")
-        # Kill the taskbar flash: reframe Chrome as a frameless owned tool-window
-        # the instant it's found (synchronously, in this worker thread) — the same
-        # reframe the overlay does, but without waiting for the UI round-trip, so
-        # the taskbar button is gone almost immediately instead of ~1s later.
         host = find_window_by_title(APP_WINDOW_TITLE)
         if host:
-            # Reframe as an owned tool-window and drop the taskbar button via the
-            # shell (ITaskbarList::DeleteTab) — no hide, so no page-stall risk.
             reframe_as_owned(hwnd, host)
-        if t0 is not None:
+        if t0 is not None:  # diag: taskbar-flash timing
             logger.info(f"chrome reframed as owned (taskbar drop) +{time.monotonic() - t0:.2f}s, "
                         f"host={'found' if host else 'MISSING'}", stage="driver")
         logger.debug(f"chrome window {hwnd} ready for embedding", stage="driver")
@@ -197,6 +189,49 @@ class DriverManager:
             self.on_browser_ready(hwnd)
         except Exception as e:
             logger.debug(f"on_browser_ready failed: {e}", stage="driver")
+
+    def _early_embed(self, t0=None):
+        """Concurrent with webdriver.Chrome(): find the off-screen Chrome window by
+        POSITION (no pid needed) and embed it the instant it's visible, so the
+        taskbar button is dropped with no perceptible flash. Best-effort; honours
+        Stop; the pid-based ``_report_browser_window`` is the fallback."""
+        for _ in range(400):  # ~12s at 30ms — covers a slow first-launch build
+            if self._embedded:
+                return
+            hwnd = find_offscreen_chrome_window()
+            if hwnd:
+                logger.info(f"chrome window caught off-screen (concurrent) +{time.monotonic() - t0:.2f}s"
+                            if t0 is not None else "chrome window caught off-screen", stage="driver")
+                self._embed_window(hwnd, t0)
+                return
+            try:
+                smart_sleep(0.03, self.check_stop, interval=0.03)
+            except Exception:
+                return  # Stop requested or driver tearing down — let the main path handle it
+
+    def _report_browser_window(self, t0=None):
+        """Pid-based fallback handoff: if the concurrent off-screen poller didn't
+        already embed (e.g. the window wasn't parked where expected), find Chrome by
+        the chromedriver pid and embed it. No-op if the early poller already won."""
+        if not self.on_browser_ready or self._embedded:
+            return
+        pid = getattr(self.chromedriver_process, "pid", None)
+        if not pid:
+            return
+        hwnd = None
+        for _ in range(80):  # up to ~8s for the window to materialise
+            if self._embedded:
+                return
+            hwnd = find_chrome_window(pid)
+            if hwnd:
+                break
+            # Cooperative wait: honours the Stop button mid-poll (raises
+            # StopRequestedException), unlike a bare sleep — see CLAUDE.md (#6).
+            smart_sleep(0.1, self.check_stop, interval=0.1)
+        if not hwnd:
+            logger.debug("chrome window not found — no embedded panel", stage="driver")
+            return
+        self._embed_window(hwnd, t0)
 
     def close_driver(self):
         """Close the browser fully. With detach OFF, driver.quit() closes Chrome

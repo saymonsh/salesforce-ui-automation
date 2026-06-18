@@ -229,6 +229,44 @@ def find_chrome_window(chromedriver_pid: int) -> Optional[int]:
                               _CHROME_WINDOW_CLASS, None)
 
 
+def find_offscreen_chrome_window() -> Optional[int]:
+    """A visible, un-owned Chrome-class window parked off-screen — our automation
+    Chrome, before it gets reframed.
+
+    Found by POSITION (the unique off-screen launch point), not by pid, so it can be
+    located *while* ``webdriver.Chrome()`` is still building the session — before the
+    chromedriver pid (and thus ``find_chrome_window``) is available. That's what lets
+    the taskbar reframe run concurrently and avoid the ~1s flash. The off-screen
+    point is set only by our own launch flag, so this won't grab a user's Chrome."""
+    if _user32 is None:
+        return None
+    found = []
+
+    def _cb(hwnd, _l):
+        try:
+            if not _user32.IsWindowVisible(hwnd) or _user32.GetWindow(hwnd, GW_OWNER):
+                return True
+            buf = ctypes.create_unicode_buffer(64)
+            _user32.GetClassNameW(hwnd, buf, 64)
+            if buf.value != _CHROME_WINDOW_CLASS:
+                return True
+            rect = wintypes.RECT()
+            _user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            # Off-screen = parked at our launch point (allow slack for borders).
+            if rect.left <= -30000 and rect.top <= -30000:
+                found.append(hwnd)
+                return False
+            return True
+        except Exception:
+            return True
+
+    try:
+        _user32.EnumWindows(_WNDENUMPROC(_cb), 0)
+    except Exception:
+        return None
+    return found[0] if found else None
+
+
 def find_window_by_title(title: str) -> Optional[int]:
     """The app's own (Flutter) host window, located by its exact title."""
     if _user32 is None or not title:
