@@ -1,7 +1,6 @@
 import os
 import subprocess
 import threading
-import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -230,48 +229,33 @@ class DriverManager:
         self._embed_window(hwnd)
 
     def close_driver(self):
-        """Close the browser fully. With detach OFF, driver.quit() closes Chrome
-        gracefully (and cleans its temp profile); terminating chromedriver also
-        closes Chrome, so the browser is gone on every exit path — no force-kill.
-        This is also the clean shutdown for the TYPE 2 handoff once the operator
-        is done (the controller calls it on the driver it kept alive)."""
-        _t_close = time.monotonic()  # diag: where do the ~3s on Stop/done actually go?
-        if self.driver:
-            # driver.quit() can block (and with Service it WAITS for chromedriver to
-            # stop — ~2.5s of graceful teardown), and this also runs on the UI thread
-            # (handoff "done" / starting a new run) — a long wait feels like a freeze
-            # (#8). The graceful part that matters (DELETE /session → Chrome closes +
-            # cleans its profile) happens early; the slow tail is the service-stop
-            # wait, which our terminate() below makes redundant. So bound quit() to a
-            # short window, then terminate chromedriver (which also closes Chrome) —
-            # snappy close, profile still cleaned in the common case.
-            drv = self.driver
-            quitter = threading.Thread(target=self._quit_driver_quiet, args=(drv,), daemon=True)
-            tq = time.monotonic()
-            quitter.start()
-            quitter.join(timeout=1.5)
-            # Whether quit() returned or hit the watchdog (wedged / slow service-stop)
-            # — debug only, for diagnosing the #8 freeze path.
-            logger.debug(
-                f"driver.quit() {'timed out at watchdog' if quitter.is_alive() else 'returned'} "
-                f"in {time.monotonic() - tq:.1f}s", stage="driver")
-            self.driver = None
+        """Close the browser fast and fully by killing the chromedriver process TREE
+        (chromedriver + its child Chrome processes).
 
-        if self.chromedriver_process:
-            try:
-                self.chromedriver_process.terminate()
-            except Exception:
-                pass
-            finally:
-                self.chromedriver_process = None
+        Runs on Stop / handoff "done" / before a new run — sometimes on the UI thread
+        — so it must be snappy and must never hang. We deliberately DON'T call
+        ``driver.quit()``: with Selenium Manager's Service, quit() WAITS ~2.5s for the
+        service to stop, which made Stop/"done" feel sluggish. A tree-kill by our own
+        chromedriver PID closes everything in well under a second and can't wedge the
+        UI (#8). It's keyed off the PID of the chromedriver process we created here,
+        so — unlike a stored HWND — it can never touch an unrelated process.
+
+        ponytail: the abrupt kill skips Chrome's graceful temp-profile cleanup, so a
+        small user-data dir leaks into %TEMP% per run. Acceptable for an
+        occasional-run desktop tool; upgrade path is a fire-and-forget background
+        ``driver.quit()`` before the kill if that ever matters.
+        """
+        pid = getattr(self.chromedriver_process, "pid", None)
+        self.driver = None
+        self.chromedriver_process = None
         self.chrome_hwnd = None
-        logger.info(f"close_driver done in {time.monotonic() - _t_close:.2f}s", stage="driver")
-
-    @staticmethod
-    def _quit_driver_quiet(driver):
-        """driver.quit() that swallows everything — run on a watchdog thread so a
-        wedged chromedriver can't block the caller (see close_driver, #8)."""
+        if not pid:
+            return
         try:
-            driver.quit()
-        except Exception:
-            pass
+            # /T kills the whole tree (chromedriver + Chrome); /F forces it. Bounded
+            # so a stuck taskkill can't hang the caller. taskkill is a Windows builtin.
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                           capture_output=True, timeout=5)
+            logger.debug(f"driver closed — killed chromedriver tree (pid {pid})", stage="driver")
+        except Exception as e:
+            logger.debug(f"close_driver taskkill failed: {e}", stage="driver")
