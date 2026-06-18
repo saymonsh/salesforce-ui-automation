@@ -222,6 +222,47 @@ def _filesystem_hunt(needle: str = NEEDLE) -> None:
     logger.info(f"[hunt] files under USERPROFILE containing {needle}:\n{body}", stage="netfree-probe")
 
 
+def _verify() -> None:
+    """Prove the fix: the conventional driver-acquisition paths work now.
+
+    The original failure was env-respecting tools (webdriver-manager) hitting the
+    dead env proxy. With it gone, a DEFAULT-proxy request (honouring getproxies,
+    like those tools) should no longer NETFAIL, and Selenium Manager — the modern
+    method that 'crashed' before — should acquire + launch Chrome end to end.
+    """
+    import urllib.request
+
+    logger.info(f"[verify] getproxies() now = {urllib.request.getproxies()}", stage="netfree-probe")
+    targets = [
+        ("binary-cdn", "https://storage.googleapis.com/chrome-for-testing-public/"
+                       "150.0.7871.24/win64/chromedriver-win64.zip", {"Range": "bytes=0-0"}),
+        ("metadata-json", "https://googlechromelabs.github.io/chrome-for-testing/"
+                          "known-good-versions-with-downloads.json", {}),
+    ]
+    for label, url, headers in targets:
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as r:
+                logger.info(f"[verify] default-path {label}: OK status={r.status}", stage="netfree-probe")
+        except Exception as e:
+            logger.info(f"[verify] default-path {label}: {type(e).__name__}: {e}", stage="netfree-probe")
+
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        opts = Options()
+        opts.add_argument("--headless=new")
+        opts.add_argument("--no-sandbox")
+        drv = webdriver.Chrome(options=opts)  # no Service → Selenium Manager acquires the driver
+        try:
+            logger.info(f"[verify] Selenium Manager OK — Chrome {drv.capabilities.get('browserVersion','?')} "
+                        "launched via auto-resolved driver", stage="netfree-probe")
+        finally:
+            drv.quit()
+    except Exception as e:
+        logger.error(f"[verify] Selenium Manager FAILED: {type(e).__name__}: {e}",
+                     stage="netfree-probe", exc=True)
+
+
 def _remove_env_proxy() -> None:
     """Delete the stray HTTP(S)_PROXY values from HKCU\\Environment.
 
@@ -267,6 +308,7 @@ def main() -> None:
     logger.set_verbose(True)
 
     remove = "--remove-env-proxy" in sys.argv
+    verify = "--verify" in sys.argv
     logger.info("=== proxy/env probe start ===", stage="netfree-probe")
     # finally-mirror: even if a step is slow and you Ctrl+C, what was logged so far
     # still gets pushed to the endpoint (the mirror only ever ran at the very end).
@@ -275,7 +317,9 @@ def main() -> None:
         if remove:
             _remove_env_proxy()
         _proxy_state()          # after removal, shows live env / User scope → none = verified
-        if not remove:
+        if verify:
+            _verify()
+        if not remove and not verify:
             _hunt()
     finally:
         logger.info("=== probe done — mirroring log out ===", stage="netfree-probe")
