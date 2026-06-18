@@ -124,15 +124,33 @@ def _direct_opener(ctx: ssl.SSLContext | None = None) -> urllib.request.OpenerDi
     )
 
 
-def _proxy_config_probe() -> None:
-    """Read the REAL Windows proxy config — the browser and Python may diverge.
+def _proxies_from_wininet(server: str) -> dict:
+    """Turn a WinINET ``ProxyServer`` value into a urllib proxies dict.
 
-    ``getproxies()`` only sees the static ``ProxyServer`` and IGNORES a PAC
-    (``AutoConfigURL``). Netfree commonly uses a PAC, so the browser could be routed
-    by the PAC (and correctly get 418s) while Python falls back to a stale/different
-    static proxy — which would explain the silent drop with no 418. If a PAC exists
-    we fetch and log it (direct) to see where the browser is actually routed.
+    Value is either ``host:port`` (all schemes) or ``http=h:p;https=h:p;…``.
     """
+    if "=" in server:
+        out = {}
+        for part in server.split(";"):
+            scheme, _, hp = part.partition("=")
+            if hp:
+                out[scheme.strip()] = hp if "://" in hp else "http://" + hp.strip()
+        return out
+    return {"http": "http://" + server, "https": "http://" + server}
+
+
+def _proxy_config_probe() -> str | None:
+    """Read the REAL Windows proxy config and return the registry ``ProxyServer``.
+
+    ``getproxies()`` reads ENV vars first (``getproxies_environment() or
+    getproxies_registry()``), so a stray ``HTTP_PROXY`` makes Python use a totally
+    different proxy than the browser, which reads the WinINET registry. Logging both
+    side by side is how we caught that divergence. Also dumps the proxy env vars to
+    pin the source.
+    """
+    env = {k: os.environ.get(k) for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")}
+    logger.info(f"[proxy-config] proxy env vars={ {k: v for k, v in env.items() if v} }",
+                stage="netfree-probe")
     try:
         import winreg
         key = winreg.OpenKey(
@@ -141,7 +159,7 @@ def _proxy_config_probe() -> None:
         )
     except OSError as e:
         logger.info(f"[proxy-config] couldn't open registry: {e}", stage="netfree-probe")
-        return
+        return None
 
     def _get(name):
         try:
@@ -153,12 +171,11 @@ def _proxy_config_probe() -> None:
     enable, server = _get("ProxyEnable"), _get("ProxyServer")
     pac, override = _get("AutoConfigURL"), _get("ProxyOverride")
     logger.info(
-        f"[proxy-config] ProxyEnable={enable} ProxyServer={server!r} "
-        f"AutoConfigURL={pac!r} ProxyOverride={override!r}", stage="netfree-probe")
+        f"[proxy-config] registry ProxyEnable={enable} ProxyServer={server!r} "
+        f"AutoConfigURL={pac!r}", stage="netfree-probe")
+    logger.info(f"[proxy-config] registry ProxyOverride={override!r}", stage="netfree-probe")
 
     if pac:
-        # The browser follows this PAC; urllib ignores it. Fetch it direct and log
-        # it so we can read the actual routing rules (FindProxyForURL).
         try:
             with _direct_opener().open(urllib.request.Request(pac), timeout=15) as r:
                 body = r.read(8000).decode("utf-8", "replace")
@@ -167,6 +184,7 @@ def _proxy_config_probe() -> None:
         except Exception as e:
             logger.info(f"[proxy-config] PAC fetch failed: {type(e).__name__}: {e}",
                         stage="netfree-probe")
+    return server if (enable and server) else None
 
 
 def _ca_contexts() -> list[tuple[str, ssl.SSLContext]]:
@@ -345,9 +363,10 @@ def main(argv: list[str]) -> None:
     # URLs *through* the Netfree proxy; if Python sees no proxy it connects direct
     # and Netfree drops it. This line tells us which world we're in.
     logger.info(f"getproxies()={urllib.request.getproxies()}", stage="netfree-probe")
-    # The real config — does the browser follow a PAC that Python's getproxies()
-    # can't see? This is the leading explanation for 'browser works, Python silent'.
-    _proxy_config_probe()
+    # The real config — Python (env var) and the browser (registry) may use totally
+    # different proxies. This is the leading explanation for 'browser works, Python
+    # silent'. Returns the registry ProxyServer = the proxy the BROWSER really uses.
+    reg_proxy = _proxy_config_probe()
 
     system_ctx = ssl.create_default_context()
     # Proxy matrix: DIRECT (proxies={}) vs SYSTEM proxy (proxies=None). If SYSTEM
@@ -370,6 +389,16 @@ def main(argv: list[str]) -> None:
     except ImportError:
         logger.info("[SKIP] certifi not installed — can't run the CA-bundle contrast",
                     stage="netfree-probe")
+
+    # The decisive test: go through the BROWSER's actual proxy (registry ProxyServer),
+    # not the env-var one Python defaulted to. A 407 here = it's integrated Windows
+    # auth (the browser does SSO, Python doesn't); an OK/418 = it's the live filter.
+    if reg_proxy:
+        rp = _proxies_from_wininet(reg_proxy)
+        _http_probe(f"binary-cdn (registry proxy {reg_proxy})", URL_BINARY, system_ctx,
+                    {"Range": "bytes=0-0"}, rp)
+        _http_probe(f"metadata-json (registry proxy {reg_proxy})", URL_META, system_ctx,
+                    None, rp)
 
     # Settle the open question: is the proxy itself a TLS endpoint gated by the
     # Netfree cert (→ certs DO matter for the proxy path), or plaintext (→ not certs)?
