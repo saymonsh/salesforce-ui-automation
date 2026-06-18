@@ -68,18 +68,26 @@ class Logger:
         even when the operator's feed runs quiet. Rotation is delegated to the
         stdlib ``RotatingFileHandler`` rather than hand-rolled.
 
-        Opened in ``mode="w"`` so each launch *truncates* the log: the SSH mirror
-        is overwrite-only (scp replaces the remote file), and we want it to show
-        the latest session — not an ever-growing pile of past runs appended.
+        Truncated on each launch so the log shows the latest session — not an
+        ever-growing pile of past runs. The SSH mirror is overwrite-only (scp
+        replaces the remote file), so an appending local file would defeat that.
+        NOTE: ``RotatingFileHandler`` silently forces ``mode="a"`` when
+        ``maxBytes>0`` (rotation needs append), so passing ``mode="w"`` does
+        nothing — we truncate the file ourselves before opening the handler.
         """
         import logging
         from logging.handlers import RotatingFileHandler
+
+        try:
+            open(path, "w", encoding="utf-8").close()  # explicit per-launch reset
+        except OSError:
+            pass  # best-effort; a stale/locked file just keeps appending
 
         fl = logging.getLogger("automation.debugfile")
         fl.setLevel(logging.DEBUG)
         fl.propagate = False
         handler = RotatingFileHandler(
-            path, mode="w", maxBytes=max_bytes, backupCount=backups, encoding="utf-8"
+            path, maxBytes=max_bytes, backupCount=backups, encoding="utf-8"
         )
         handler.setFormatter(logging.Formatter("%(message)s"))
         fl.handlers = [handler]  # replace on re-bind so lines aren't duplicated
