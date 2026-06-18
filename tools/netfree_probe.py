@@ -11,7 +11,8 @@ proxy config, locates the env var's scope + write time, sweeps the whole registr
 for the proxy IP, and lists installed programs by date to cross-reference. Output
 goes to the SSH-mirrored debug log (read at https://shalom.5784.link/api/netlog).
 
-    python -m tools.netfree_probe
+    python -m tools.netfree_probe                     # diagnose (read-only)
+    python -m tools.netfree_probe --remove-env-proxy  # delete the stray env proxy, then verify
 """
 from __future__ import annotations
 
@@ -193,19 +194,61 @@ def _history_hunt(needle: str = NEEDLE) -> None:
     logger.info(f"[hunt] PowerShell history (proxy/env commands):\n{body}", stage="netfree-probe")
 
 
+def _remove_env_proxy() -> None:
+    """Delete the stray HTTP(S)_PROXY values from HKCU\\Environment.
+
+    Baked into the probe because the filtered machine has no clipboard in — the only
+    way to act there is `git pull` + run this. Gated behind --remove-env-proxy so a
+    normal diagnostic run never mutates. HKCU is the user's own hive: no admin needed.
+    """
+    try:
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_SET_VALUE)
+    except OSError as e:
+        logger.info(f"[remove] can't open HKCU\\Environment for write: {e}", stage="netfree-probe")
+        return
+    deleted = []
+    for n in PROXY_NAMES:
+        try:
+            winreg.DeleteValue(k, n)
+            deleted.append(n)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            logger.info(f"[remove] {n}: {e}", stage="netfree-probe")
+    winreg.CloseKey(k)
+    for n in PROXY_NAMES:
+        os.environ.pop(n, None)  # reflect in this process so the verification below is accurate
+    logger.info(f"[remove] deleted from HKCU\\Environment: {deleted or 'none (already absent)'}",
+                stage="netfree-probe")
+    # Tell other apps to re-read the environment (best-effort; existing shells may ignore it).
+    try:
+        import ctypes
+        ctypes.windll.user32.SendMessageTimeoutW(
+            0xFFFF, 0x1A, 0, "Environment", 0, 5000, ctypes.byref(ctypes.c_ulong()))
+        logger.info("[remove] broadcast WM_SETTINGCHANGE", stage="netfree-probe")
+    except Exception as e:
+        logger.info(f"[remove] broadcast failed: {e}", stage="netfree-probe")
+    logger.info("[remove] done — open a NEW terminal for the change to fully take effect",
+                stage="netfree-probe")
+
+
 def main() -> None:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     os.makedirs(os.path.join(root, "logs"), exist_ok=True)
     logger.bind_file(os.path.join(root, "logs", "debug.log"))
     logger.set_verbose(True)
 
+    remove = "--remove-env-proxy" in sys.argv
     logger.info("=== proxy/env probe start ===", stage="netfree-probe")
     # finally-mirror: even if a step is slow and you Ctrl+C, what was logged so far
     # still gets pushed to the endpoint (the mirror only ever ran at the very end).
     try:
         logger.info(f"python {sys.version.split()[0]}", stage="netfree-probe")
-        _proxy_state()
-        _hunt()
+        if remove:
+            _remove_env_proxy()
+        _proxy_state()          # after removal, shows live env / User scope → none = verified
+        if not remove:
+            _hunt()
     finally:
         logger.info("=== probe done — mirroring log out ===", stage="netfree-probe")
         log_mirror.push_async()
