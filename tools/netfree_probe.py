@@ -179,6 +179,55 @@ def _proxy_tls_probe() -> None:
                         stage="netfree-probe")
 
 
+def _proxy_connect_probe() -> None:
+    """Send a raw plaintext CONNECT to the proxy and READ the reply.
+
+    urllib reported 'closed without response', but its strict HTTP parser may have
+    discarded a non-standard reply. A manual recv catches what the proxy actually
+    says — a 407 auth challenge, an HTML 'site not approved' notice, or a redirect
+    to Netfree's review page — i.e. what it wants that the browser provides and
+    Python doesn't. A browser-like User-Agent is sent in case it fingerprints that.
+    """
+    import socket
+
+    target = urllib.request.getproxies().get("https") or urllib.request.getproxies().get("http")
+    if not target:
+        logger.info("[SKIP] no system proxy — nothing to CONNECT-probe", stage="netfree-probe")
+        return
+    netloc = target.split("//", 1)[-1].rstrip("/")
+    host, _, port_s = netloc.partition(":")
+    port = int(port_s or "8080")
+    dest = "storage.googleapis.com:443"
+    req = (
+        f"CONNECT {dest} HTTP/1.1\r\nHost: {dest}\r\n"
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0 Safari/537.36\r\n"
+        "Proxy-Connection: keep-alive\r\n\r\n"
+    )
+    try:
+        with socket.create_connection((host, port), timeout=10) as s:
+            s.sendall(req.encode())
+            s.settimeout(10)
+            data = b""
+            try:
+                while len(data) < 4096:
+                    chunk = s.recv(1024)
+                    if not chunk:
+                        break
+                    data += chunk
+            except socket.timeout:
+                pass
+            if data:
+                snippet = data[:600].decode("latin-1", "replace").replace("\r\n", " | ")
+                logger.info(f"[CONNECT-REPLY] proxy {host}:{port} → {snippet}", stage="netfree-probe")
+            else:
+                logger.info(f"[CONNECT-SILENT] proxy {host}:{port} sent no bytes then closed",
+                            stage="netfree-probe")
+    except Exception as e:
+        logger.info(f"[CONNECT-FAIL] proxy {host}:{port} — {type(e).__name__}: {e}",
+                    stage="netfree-probe")
+
+
 def _selenium_manager_probe(cold: bool = False) -> None:
     """Let Selenium 4.6+ resolve & download the driver itself (no Service/path).
 
@@ -269,6 +318,9 @@ def main(argv: list[str]) -> None:
     # Settle the open question: is the proxy itself a TLS endpoint gated by the
     # Netfree cert (→ certs DO matter for the proxy path), or plaintext (→ not certs)?
     _proxy_tls_probe()
+    # And read what the proxy actually replies to a raw CONNECT — reveals whether
+    # it wants auth / approval / a browser identity (not a cert).
+    _proxy_connect_probe()
 
     if "--with-selenium-manager" in argv:
         _selenium_manager_probe(cold="--cold" in argv)
