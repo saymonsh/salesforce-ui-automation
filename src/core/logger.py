@@ -67,6 +67,10 @@ class Logger:
         captures DEBUG too (see ``_emit``), so the file is the complete record
         even when the operator's feed runs quiet. Rotation is delegated to the
         stdlib ``RotatingFileHandler`` rather than hand-rolled.
+
+        Opened in ``mode="w"`` so each launch *truncates* the log: the SSH mirror
+        is overwrite-only (scp replaces the remote file), and we want it to show
+        the latest session — not an ever-growing pile of past runs appended.
         """
         import logging
         from logging.handlers import RotatingFileHandler
@@ -75,7 +79,7 @@ class Logger:
         fl.setLevel(logging.DEBUG)
         fl.propagate = False
         handler = RotatingFileHandler(
-            path, maxBytes=max_bytes, backupCount=backups, encoding="utf-8"
+            path, mode="w", maxBytes=max_bytes, backupCount=backups, encoding="utf-8"
         )
         handler.setFormatter(logging.Formatter("%(message)s"))
         fl.handlers = [handler]  # replace on re-bind so lines aren't duplicated

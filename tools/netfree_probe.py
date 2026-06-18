@@ -81,10 +81,19 @@ def classify(exc, status, body) -> str:
     return "HTTP_%s" % status
 
 
-def _http_probe(label: str, url: str, ctx: ssl.SSLContext, headers: dict | None) -> str:
+def _http_probe(label: str, url: str, ctx: ssl.SSLContext, headers: dict | None,
+                proxies: dict | None) -> str:
+    """One HTTPS attempt. ``proxies={}`` forces a DIRECT connection (bypass any
+    system proxy); ``proxies=None`` lets urllib use the system/env proxy — the
+    browser presumably reaches these URLs *through* the Netfree proxy, so this
+    dimension is how we test whether the proxy is the difference."""
+    handlers: list = [urllib.request.HTTPSHandler(context=ctx)]
+    if proxies is not None:
+        handlers.append(urllib.request.ProxyHandler(proxies))
+    opener = urllib.request.build_opener(*handlers)
     req = urllib.request.Request(url, headers=headers or {})
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+        with opener.open(req, timeout=15) as resp:
             body = resp.read(2048)
             verdict = classify(None, resp.status, body)
             detail = (
@@ -114,6 +123,13 @@ def _selenium_manager_probe() -> None:
     window appears; the full traceback is logged on any failure.
     """
     logger.info("driving Selenium Manager (real Chrome, headless)…", stage="netfree-probe")
+    # Mirror production's setup_proxy(): strip proxy env + exempt localhost. Without
+    # this the WebDriver call to the local chromedriver gets routed through the
+    # Netfree proxy and comes back as a block page (str), not JSON — which is the
+    # 'str' object has no attribute 'get' we saw. This makes the test fair.
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        os.environ.pop(var, None)
+    os.environ["NO_PROXY"] = "127.0.0.1,localhost"
     try:
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
@@ -145,21 +161,29 @@ def main(argv: list[str]) -> None:
     logger.info("=== netfree probe start ===", stage="netfree-probe")
     logger.info(f"python {sys.version.split()[0]}  openssl {ssl.OPENSSL_VERSION}",
                 stage="netfree-probe")
+    # Is a system/env proxy configured at all? The browser likely reaches these
+    # URLs *through* the Netfree proxy; if Python sees no proxy it connects direct
+    # and Netfree drops it. This line tells us which world we're in.
+    logger.info(f"getproxies()={urllib.request.getproxies()}", stage="netfree-probe")
 
-    # (1) system trust store — what the browser & stdlib urllib use. On Windows
-    # create_default_context() loads the system ROOT store, which trusts the
-    # Netfree root. Expect OK if the only problem is whose CA bundle is used.
     system_ctx = ssl.create_default_context()
-    _http_probe("binary-cdn (system store)", URL_BINARY, system_ctx, {"Range": "bytes=0-0"})
-    _http_probe("metadata-json (system store)", URL_META, system_ctx, None)
+    # Proxy matrix: DIRECT (proxies={}) vs SYSTEM proxy (proxies=None). If SYSTEM
+    # succeeds where DIRECT fails, the block is "Python wasn't using the proxy the
+    # browser uses" — not certs, not a hard block.
+    for ptag, proxies in (("direct", {}), ("system-proxy", None)):
+        _http_probe(f"binary-cdn (system store, {ptag})", URL_BINARY, system_ctx,
+                    {"Range": "bytes=0-0"}, proxies)
+        _http_probe(f"metadata-json (system store, {ptag})", URL_META, system_ctx,
+                    None, proxies)
 
-    # (3) certifi — what requests / webdriver-manager use. If this is CERT while
-    # (1) was OK, the "can't use webdriver-manager here" assumption is FALSE: the
-    # network is fine, only the CA bundle is wrong, and the fix is one line.
+    # CA-bundle contrast — certifi is what requests / webdriver-manager use. Run it
+    # over BOTH proxy modes so a cert failure can't be masked by a proxy failure.
     try:
         import certifi
         certifi_ctx = ssl.create_default_context(cafile=certifi.where())
-        _http_probe("binary-cdn (certifi bundle)", URL_BINARY, certifi_ctx, {"Range": "bytes=0-0"})
+        for ptag, proxies in (("direct", {}), ("system-proxy", None)):
+            _http_probe(f"binary-cdn (certifi bundle, {ptag})", URL_BINARY, certifi_ctx,
+                        {"Range": "bytes=0-0"}, proxies)
     except ImportError:
         logger.info("[SKIP] certifi not installed — can't run the CA-bundle contrast",
                     stage="netfree-probe")

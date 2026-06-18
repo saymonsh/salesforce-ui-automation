@@ -72,14 +72,29 @@ Then from an unfiltered machine open **`https://shalom.5784.link/api/netlog`**
 
 ### Reading the probe verdicts
 
-- **`OK` on system store but `CERT` on certifi** → the assumption is wrong. The
-  network is fine; only Python's CA bundle (`certifi`, used by `requests` /
-  `webdriver-manager`) doesn't trust the Netfree root. Fix is one line —
+- **`OK` direct but `CERT` on certifi** → a cert-bundle problem. Fix is one line —
   `truststore.inject_into_ssl()` (py3.10+) — and the hardcoded pin can go.
-- **`BLOCKPAGE` / `NETFAIL` on a specific URL** → a real per-address hard block;
-  keep pre-staging that artifact.
+- **`OK` on `system-proxy` but `NETFAIL` on `direct`** → Python wasn't using the
+  proxy the browser uses. Not certs, not a hard block — route downloads through
+  the system proxy and the conventional paths work.
+- **`NETFAIL` on BOTH proxy modes for BOTH CA bundles** → a real connection-level
+  block of that host from Python; keep pre-staging the artifact.
 - **`OK` on the Selenium Manager probe** → the modern built-in path works there;
   the hardcoded chromedriver + port 9515 were never needed.
+
+### Run 1 result (2026-06-18) — cert theory falsified
+
+All three network probes returned `NETFAIL` (`Remote end closed connection
+without response`) on **both** the system store and certifi — identically. A cert
+problem would have failed certifi with `CERTIFICATE_VERIFY_FAILED` while the
+system store succeeded; instead Netfree closes the connection *before* the cert
+exchange. So `truststore` won't help — the block is at the connection layer.
+The Selenium Manager probe failed with `'str' object has no attribute 'get'`
+because that run didn't strip the proxy (production's `setup_proxy` does), so the
+**localhost** WebDriver call was routed through the Netfree proxy and came back as
+a block page — which actually validates the `setup_proxy` decision. Both issues
+are now fixed in the probe; the open question is the direct-vs-proxy matrix above
+(why the browser reaches these URLs and direct Python doesn't).
 
 ### Reading the result — what the chromedriver failure tells us
 
