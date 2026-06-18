@@ -67,6 +67,10 @@ def _proxy_state() -> None:
     )
     logger.info(f"[proxy] env scope — User={user or 'none'}  Machine={machine or 'none'}",
                 stage="netfree-probe")
+    if live and not user and not machine:
+        logger.info("[proxy] NOTE: live env has the proxy but the registry is clean → STALE SHELL. "
+                    "This process inherited the pre-deletion env; open a NEW terminal to clear it.",
+                    stage="netfree-probe")
 
     # When the user env block last changed → the proxy was set at/before this.
     try:
@@ -246,6 +250,12 @@ def _verify() -> None:
         except Exception as e:
             logger.info(f"[verify] default-path {label}: {type(e).__name__}: {e}", stage="netfree-probe")
 
+    # Production parity for the driver acquisition: strip the proxy env + exempt
+    # localhost (what setup_proxy does), so a stale shell or the gov proxy can't
+    # route the localhost WebDriver call and trigger the 'str' has no 'get' crash.
+    for n in PROXY_NAMES:
+        os.environ.pop(n, None)
+    os.environ["NO_PROXY"] = "127.0.0.1,localhost"
     try:
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
