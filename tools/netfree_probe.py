@@ -116,6 +116,69 @@ def _http_probe(label: str, url: str, ctx: ssl.SSLContext, headers: dict | None,
     return verdict
 
 
+def _ca_contexts() -> list[tuple[str, ssl.SSLContext]]:
+    """(label, context) for the system trust store and the certifi bundle.
+
+    The system store trusts the Netfree root (installed machine-wide); certifi does
+    not. Any place that store-choice flips the result, a Netfree MITM cert is the
+    gate — which is the whole certs question.
+    """
+    out = [("system store", ssl.create_default_context())]
+    try:
+        import certifi
+        out.append(("certifi bundle", ssl.create_default_context(cafile=certifi.where())))
+    except ImportError:
+        pass
+    return out
+
+
+def _proxy_tls_probe() -> None:
+    """Is the system proxy a TLS (HTTPS) proxy gated by the Netfree cert?
+
+    The through-proxy failures were 'connection closed' BEFORE any cert exchange —
+    which is ALSO exactly what Python speaking plaintext to a TLS proxy looks like.
+    So we can't yet rule certs in or out for the proxy path. This handshakes TLS
+    straight at the proxy under each CA store to settle it:
+
+      TLS-OK (system) + CERT (certifi) → it's a TLS proxy whose cert chains to the
+          Netfree root → CERTS ARE the gate for the proxy path.
+      NOT-TLS on both → the proxy speaks plaintext; the CONNECT drop is policy /
+          client-fingerprint, not certs.
+    """
+    import socket
+
+    target = urllib.request.getproxies().get("https") or urllib.request.getproxies().get("http")
+    if not target:
+        logger.info("[SKIP] no system proxy configured — nothing to TLS-probe", stage="netfree-probe")
+        return
+    netloc = target.split("//", 1)[-1].rstrip("/")
+    host, _, port_s = netloc.partition(":")
+    port = int(port_s or "443")
+
+    for tag, ctx in _ca_contexts():
+        # We're probing the proxy endpoint itself; its cert won't match a hostname,
+        # so disable hostname check but KEEP chain verification — that's the certs test.
+        ctx.check_hostname = False
+        try:
+            with socket.create_connection((host, port), timeout=10) as raw:
+                with ctx.wrap_socket(raw, server_hostname=host) as tls:
+                    cert = tls.getpeercert() or {}
+                    subject = dict(x[0] for x in cert.get("subject", []))
+                    issuer = dict(x[0] for x in cert.get("issuer", []))
+                    logger.info(
+                        f"[TLS-OK] proxy {host}:{port} ({tag}) — cert chain verified; "
+                        f"subject={subject} issuer={issuer}", stage="netfree-probe")
+        except ssl.SSLCertVerificationError as e:
+            logger.info(f"[CERT] proxy {host}:{port} ({tag}) — chain NOT trusted: {e}",
+                        stage="netfree-probe")
+        except ssl.SSLError as e:
+            logger.info(f"[NOT-TLS] proxy {host}:{port} ({tag}) — {type(e).__name__}: {e} "
+                        f"(proxy likely speaks plaintext, not TLS)", stage="netfree-probe")
+        except Exception as e:
+            logger.info(f"[FAIL] proxy {host}:{port} ({tag}) — {type(e).__name__}: {e}",
+                        stage="netfree-probe")
+
+
 def _selenium_manager_probe(cold: bool = False) -> None:
     """Let Selenium 4.6+ resolve & download the driver itself (no Service/path).
 
@@ -202,6 +265,10 @@ def main(argv: list[str]) -> None:
     except ImportError:
         logger.info("[SKIP] certifi not installed — can't run the CA-bundle contrast",
                     stage="netfree-probe")
+
+    # Settle the open question: is the proxy itself a TLS endpoint gated by the
+    # Netfree cert (→ certs DO matter for the proxy path), or plaintext (→ not certs)?
+    _proxy_tls_probe()
 
     if "--with-selenium-manager" in argv:
         _selenium_manager_probe(cold="--cold" in argv)

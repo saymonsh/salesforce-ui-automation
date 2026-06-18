@@ -111,9 +111,22 @@ the proxy is stripped. So:
   and Selenium Manager can own driver acquisition + version-matching — *provided*
   its download runs direct (proxy stripped).
 
-**Still open:** the Selenium Manager `OK` used a *cached* driver (launched in ~1s).
-Re-run with `--cold` to wipe the cache and prove a fresh DOWNLOAD also works on
-this machine before retiring the hardcoded path.
+**Confirmed (Run 3, `--cold`):** wiping the cache forced a real download (~7s vs
+~1s) and Selenium Manager still launched Chrome 149 — so a fresh DOWNLOAD works
+direct too. Note: Selenium Manager's Rust binary ignores the system proxy and
+goes direct.
+
+**Caveat — direct = bypassing the org filter.** The proxy is a *deliberate* org
+policy on a fully-managed machine, not an oversight. "Direct works" relies on a
+policy gap the org can close at any time; an approach whose startup depends on it
+is fragile. The pre-staged driver needs zero egress to launch — keep it as the
+robust core; treat any direct download (e.g. an updater) as non-fatal convenience.
+
+**Open: is the proxy path actually a CERTS gate?** The through-proxy failures
+close *before* any cert exchange — but that's also what plaintext-to-a-TLS-proxy
+looks like, so certs aren't ruled out there. `_proxy_tls_probe()` handshakes TLS
+straight at the proxy: `TLS-OK (system) + CERT (certifi)` ⇒ certs ARE the gate for
+the proxy path; `NOT-TLS` on both ⇒ plaintext proxy, not certs.
 
 ### Run 1 result (2026-06-18) — cert theory falsified
 
