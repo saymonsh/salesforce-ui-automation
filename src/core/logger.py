@@ -42,6 +42,7 @@ class Logger:
         self._stage = "-"
         self._ctx: dict[str, object] = {}
         self._lock = threading.RLock()
+        self._file_logger = None       # diag file mirror — see bind_file()
 
     # ------------------------------------------------------------------ wiring
     def bind(self, sink) -> None:
@@ -53,6 +54,32 @@ class Logger:
 
     def unbind(self) -> None:
         self._sink = None
+
+    def bind_file(self, path, max_bytes: int = 2_000_000, backups: int = 3) -> None:
+        """Also mirror every emitted line to a rotating file on disk.
+
+        Bound ONCE at startup (not per-run like the feed sink) so the file holds
+        the whole session. It exists to get the debug channel OFF a
+        network-filtered machine where the in-app feed can't be read remotely —
+        the file is the artifact pulled out over SSH (diag/netfree-machine).
+
+        The mirror is intentionally independent of ``set_verbose``: it always
+        captures DEBUG too (see ``_emit``), so the file is the complete record
+        even when the operator's feed runs quiet. Rotation is delegated to the
+        stdlib ``RotatingFileHandler`` rather than hand-rolled.
+        """
+        import logging
+        from logging.handlers import RotatingFileHandler
+
+        fl = logging.getLogger("automation.debugfile")
+        fl.setLevel(logging.DEBUG)
+        fl.propagate = False
+        handler = RotatingFileHandler(
+            path, maxBytes=max_bytes, backupCount=backups, encoding="utf-8"
+        )
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        fl.handlers = [handler]  # replace on re-bind so lines aren't duplicated
+        self._file_logger = fl
 
     def set_verbose(self, verbose: bool) -> None:
         """Toggle DEBUG verbosity. When off, DEBUG lines are dropped entirely."""
@@ -97,12 +124,21 @@ class Logger:
         return ", ".join(f"{key} {value}" for key, value in self._ctx.items())
 
     def _emit(self, level: str, message: str) -> None:
-        if level == "DEBUG" and not self._verbose:
-            return
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         block = f"[{self._stage} | {self._context_str()}]"
         line = f"{ts}  {level:<7}{block:<26}{message}"
+        suppressed = level == "DEBUG" and not self._verbose
         with self._lock:
+            # Diag file mirror first: it captures the FULL record — including DEBUG
+            # lines the feed/console suppress — because on a filtered machine this
+            # file is the only artifact we can pull out (over SSH).
+            if self._file_logger is not None:
+                try:
+                    self._file_logger.info(line)
+                except Exception:
+                    pass
+            if suppressed:
+                return
             # Console copy — write to the *original* stdout so it bypasses the
             # _FeedStream tee (which would otherwise double the line into the
             # feed). __stdout__ is None under a windowless (pythonw) launch.
