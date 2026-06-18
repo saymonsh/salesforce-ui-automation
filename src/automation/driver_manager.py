@@ -248,8 +248,12 @@ class DriverManager:
             # port) whether or not quit() returned.
             drv = self.driver
             quitter = threading.Thread(target=self._quit_driver_quiet, args=(drv,), daemon=True)
+            tq = time.monotonic()  # diag: is quit() slow, or hanging into the watchdog?
             quitter.start()
             quitter.join(timeout=5)
+            logger.info(
+                f"driver.quit() {'TIMED OUT at watchdog' if quitter.is_alive() else 'returned'} "
+                f"+{time.monotonic() - tq:.2f}s", stage="driver")
             self.driver = None
 
         if self.chromedriver_process:
