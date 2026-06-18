@@ -98,19 +98,30 @@ def _proxy_state() -> None:
 
 
 def _hunt(needle: str = NEEDLE) -> None:
-    """Full registry sweep for the proxy IP — reg.exe searches a whole hive fast,
-    catching any tool that stores or re-applies it (Run keys, service configs, …)."""
-    for hive in ("HKCU", "HKLM"):
+    """Search the registry for the proxy IP — catches any tool that stores or
+    re-applies it. The env var lives in HKCU, so the whole HKCU hive is worth a
+    sweep; a whole-HKLM sweep is minutes-slow and low-value, so HKLM is narrowed to
+    the autostart/service/policy subtrees where a re-applier would live. Each call
+    is time-bounded so the probe can never wedge on a slow hive."""
+    roots = [
+        "HKCU",  # whole current-user hive — where the env var (and likely its setter) sits
+        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
+        r"HKLM\SYSTEM\CurrentControlSet\Services",
+        r"HKLM\SOFTWARE\Policies",
+    ]
+    for root in roots:
         try:
-            r = subprocess.run(["reg", "query", hive, "/f", needle, "/s"],
-                               capture_output=True, text=True, timeout=180)
+            r = subprocess.run(["reg", "query", root, "/f", needle, "/s"],
+                               capture_output=True, text=True, timeout=45)
             out = (r.stdout or "").strip()
-            logger.info(f"[hunt] reg query {hive} /f {needle} /s →\n{out or '(no matches)'}",
-                        stage="netfree-probe")
+            logger.info(f"[hunt] {root} → {out or '(no matches)'}", stage="netfree-probe")
+        except subprocess.TimeoutExpired:
+            logger.info(f"[hunt] {root} → (timed out at 45s — skipped)", stage="netfree-probe")
         except Exception as e:
-            logger.info(f"[hunt] reg query {hive} failed: {type(e).__name__}: {e}",
-                        stage="netfree-probe")
+            logger.info(f"[hunt] {root} → failed: {type(e).__name__}: {e}", stage="netfree-probe")
     _programs_by_date()
+    _history_hunt()
 
 
 def _programs_by_date() -> None:
@@ -155,6 +166,33 @@ def _programs_by_date() -> None:
     logger.info(f"[hunt] installed programs by InstallDate:\n{listing}", stage="netfree-probe")
 
 
+def _history_hunt(needle: str = NEEDLE) -> None:
+    """Search the PowerShell command history for a proxy-set command.
+
+    The registry can't date a single value, but if the env var was set by a typed
+    command (`setx HTTP_PROXY …` / `[Environment]::SetEnvironmentVariable(…)`),
+    PSReadLine logged it here verbatim. The best shot at naming the actual setter.
+    """
+    path = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows",
+                        "PowerShell", "PSReadLine", "ConsoleHost_history.txt")
+    if not os.path.exists(path):
+        logger.info(f"[hunt] no PSReadLine history at {path}", stage="netfree-probe")
+        return
+    markers = (needle, "http_proxy", "https_proxy", "setenvironmentvariable", "setx")
+    hits = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                low = line.lower()
+                if any(m in low for m in markers):
+                    hits.append(line.strip())
+    except OSError as e:
+        logger.info(f"[hunt] history read failed: {e}", stage="netfree-probe")
+        return
+    body = "\n".join(f"  {h}" for h in hits) if hits else "  (no proxy/env-setting commands found)"
+    logger.info(f"[hunt] PowerShell history (proxy/env commands):\n{body}", stage="netfree-probe")
+
+
 def main() -> None:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     os.makedirs(os.path.join(root, "logs"), exist_ok=True)
@@ -162,16 +200,19 @@ def main() -> None:
     logger.set_verbose(True)
 
     logger.info("=== proxy/env probe start ===", stage="netfree-probe")
-    logger.info(f"python {sys.version.split()[0]}", stage="netfree-probe")
-    _proxy_state()
-    _hunt()
-    logger.info("=== probe done — mirroring log out ===", stage="netfree-probe")
-
-    log_mirror.push_async()
-    import threading
-    for t in threading.enumerate():
-        if t is not threading.current_thread() and t.daemon:
-            t.join(timeout=35)
+    # finally-mirror: even if a step is slow and you Ctrl+C, what was logged so far
+    # still gets pushed to the endpoint (the mirror only ever ran at the very end).
+    try:
+        logger.info(f"python {sys.version.split()[0]}", stage="netfree-probe")
+        _proxy_state()
+        _hunt()
+    finally:
+        logger.info("=== probe done — mirroring log out ===", stage="netfree-probe")
+        log_mirror.push_async()
+        import threading
+        for t in threading.enumerate():
+            if t is not threading.current_thread() and t.daemon:
+                t.join(timeout=35)
 
 
 if __name__ == "__main__":
