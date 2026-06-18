@@ -1,6 +1,7 @@
 import os
 import subprocess
 import threading
+import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -83,6 +84,7 @@ class DriverManager:
         return None
 
     def create_driver(self):
+        t0 = time.monotonic()  # diag: time the build → reframe gap (taskbar-flash hunt)
         # Strip the proxy BEFORE building the driver (see setup_proxy docstring).
         self.setup_proxy()
 
@@ -144,12 +146,12 @@ class DriverManager:
         # Hand the chromedriver process to the rest of the lifecycle: the embedding
         # locates Chrome by this PID, and close_driver terminates it as a watchdog.
         self.chromedriver_process = self.driver.service.process
-        logger.info("chrome launched", stage="driver")
-        self._report_browser_window()
+        logger.info(f"chrome launched (driver build +{time.monotonic() - t0:.2f}s)", stage="driver")
+        self._report_browser_window(t0)
         return self.driver
 
     # ------------------------------------------------------------- overlay handoff
-    def _report_browser_window(self):
+    def _report_browser_window(self, t0=None):
         """Locate Chrome's OS window and hand its handle to the UI (issue #19).
 
         Best-effort and optional: if no ``on_browser_ready`` sink is wired, or the
@@ -162,7 +164,9 @@ class DriverManager:
         if not pid:
             return
         hwnd = None
+        tries = 0
         for _ in range(80):  # up to ~8s for the window to materialise
+            tries += 1
             hwnd = find_chrome_window(pid)
             if hwnd:
                 break
@@ -173,6 +177,9 @@ class DriverManager:
         if not hwnd:
             logger.debug("chrome window not found — no embedded panel", stage="driver")
             return
+        if t0 is not None:  # diag: taskbar-flash hunt — when did we find it after build start?
+            logger.info(f"chrome window found after {tries} poll(s), +{time.monotonic() - t0:.2f}s",
+                        stage="driver")
         # Kill the taskbar flash: reframe Chrome as a frameless owned tool-window
         # the instant it's found (synchronously, in this worker thread) — the same
         # reframe the overlay does, but without waiting for the UI round-trip, so
@@ -182,6 +189,9 @@ class DriverManager:
             # Reframe as an owned tool-window and drop the taskbar button via the
             # shell (ITaskbarList::DeleteTab) — no hide, so no page-stall risk.
             reframe_as_owned(hwnd, host)
+        if t0 is not None:
+            logger.info(f"chrome reframed as owned (taskbar drop) +{time.monotonic() - t0:.2f}s, "
+                        f"host={'found' if host else 'MISSING'}", stage="driver")
         logger.debug(f"chrome window {hwnd} ready for embedding", stage="driver")
         try:
             self.on_browser_ready(hwnd)
