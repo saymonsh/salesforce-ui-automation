@@ -235,6 +235,7 @@ class DriverManager:
         closes Chrome, so the browser is gone on every exit path — no force-kill.
         This is also the clean shutdown for the TYPE 2 handoff once the operator
         is done (the controller calls it on the driver it kept alive)."""
+        _t_close = time.monotonic()  # diag: where do the ~3s on Stop/done actually go?
         if self.driver:
             # driver.quit() can block (and with Service it WAITS for chromedriver to
             # stop — ~2.5s of graceful teardown), and this also runs on the UI thread
@@ -264,7 +265,7 @@ class DriverManager:
             finally:
                 self.chromedriver_process = None
         self.chrome_hwnd = None
-        logger.debug("chromedriver terminated", stage="driver")
+        logger.info(f"close_driver done in {time.monotonic() - _t_close:.2f}s", stage="driver")
 
     @staticmethod
     def _quit_driver_quiet(driver):
