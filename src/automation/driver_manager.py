@@ -4,6 +4,7 @@ import threading
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.remote.command import Command
 from src.automation.win_window import (
     find_chrome_window,
     find_offscreen_chrome_window,
@@ -229,41 +230,44 @@ class DriverManager:
         self._embed_window(hwnd)
 
     def close_driver(self):
-        """Close the browser fast and fully by killing the chromedriver process TREE
-        (chromedriver + its child Chrome processes).
+        """Close the browser the way main did — graceful, fast, and safe.
 
-        Runs on Stop / handoff "done" / before a new run — sometimes on the UI thread
-        — so it must be snappy and must never hang. We deliberately DON'T call
-        ``driver.quit()``: with Selenium Manager's Service, quit() WAITS ~2.5s for the
-        service to stop, which made Stop/"done" feel sluggish. A tree-kill by our own
-        chromedriver PID closes everything in well under a second and can't wedge the
-        UI (#8).
+        Selenium's ``driver.quit()`` sends the session-quit AND then runs
+        ``Service.stop()``, which WAITS ~2.5s for chromedriver to exit. That wait is
+        new with webdriver.Chrome/Service (the old webdriver.Remote.quit() had no
+        service to stop) and is what made Stop/"done" feel sluggish. So we do exactly
+        what main did: send only the graceful session-quit (``Command.QUIT`` — Chrome
+        closes cleanly and cleans its temp profile, in well under a second), then
+        terminate the chromedriver process ourselves via its ``Popen`` handle.
 
-        Safety (this is a force-kill — see CLAUDE.md): we target the PID of the
-        chromedriver process WE created, not a recycled HWND; ``/T`` only reaps that
-        PID's descendants (our Chrome), never the user's own Chrome; and the
-        ``IMAGENAME eq chromedriver.exe`` filter means that if the PID was recycled
-        (e.g. chromedriver died during a long handoff and Windows reused it), taskkill
-        simply matches nothing instead of killing a stranger.
-
-        ponytail: the abrupt kill skips Chrome's graceful temp-profile cleanup, so a
-        small user-data dir leaks into %TEMP% per run. Acceptable for an
-        occasional-run desktop tool; upgrade path is a fire-and-forget background
-        ``driver.quit()`` before the kill if that ever matters.
+        Safe and clean: ``Popen.terminate()`` acts on the process HANDLE, not a PID
+        we look up, so it can never hit a recycled PID / a stranger (no force-kill —
+        addresses the CLAUDE.md concern). Chrome is already gone from the graceful
+        quit, so terminate just reaps chromedriver and frees its port. The session-
+        quit is bounded by a watchdog so a wedged chromedriver can't freeze the UI (#8).
         """
-        pid = getattr(self.chromedriver_process, "pid", None)
+        drv = self.driver
         self.driver = None
-        self.chromedriver_process = None
+        if drv is not None:
+            quitter = threading.Thread(target=self._quit_session_quiet, args=(drv,), daemon=True)
+            quitter.start()
+            quitter.join(timeout=5)  # graceful session-close is ~<1s; 5s only bites if wedged
+
+        if self.chromedriver_process is not None:
+            try:
+                self.chromedriver_process.terminate()
+            except Exception:
+                pass
+            self.chromedriver_process = None
         self.chrome_hwnd = None
-        if not pid:
-            return
+        logger.debug("driver closed", stage="driver")
+
+    @staticmethod
+    def _quit_session_quiet(driver):
+        """Send the graceful session-quit (Chrome closes + cleans its profile) WITHOUT
+        Selenium's slow Service.stop(). Swallows everything; runs on a watchdog thread
+        so a wedged chromedriver can't block the caller (see close_driver, #8)."""
         try:
-            # /F force, /T whole tree (chromedriver + its Chrome). The IMAGENAME
-            # filter is the PID-reuse guard: kill the PID only if it's still really
-            # chromedriver.exe. Bounded so a stuck taskkill can't hang the caller.
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid), "/FI", "IMAGENAME eq chromedriver.exe"],
-                capture_output=True, timeout=5)
-            logger.debug(f"driver closed — killed chromedriver tree (pid {pid})", stage="driver")
-        except Exception as e:
-            logger.debug(f"close_driver taskkill failed: {e}", stage="driver")
+            driver.execute(Command.QUIT)
+        except Exception:
+            pass
