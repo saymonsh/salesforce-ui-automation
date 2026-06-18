@@ -116,6 +116,59 @@ def _http_probe(label: str, url: str, ctx: ssl.SSLContext, headers: dict | None,
     return verdict
 
 
+def _direct_opener(ctx: ssl.SSLContext | None = None) -> urllib.request.OpenerDirector:
+    """An opener that bypasses any system proxy (the proven-working direct path)."""
+    return urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=ctx or ssl.create_default_context()),
+        urllib.request.ProxyHandler({}),
+    )
+
+
+def _proxy_config_probe() -> None:
+    """Read the REAL Windows proxy config — the browser and Python may diverge.
+
+    ``getproxies()`` only sees the static ``ProxyServer`` and IGNORES a PAC
+    (``AutoConfigURL``). Netfree commonly uses a PAC, so the browser could be routed
+    by the PAC (and correctly get 418s) while Python falls back to a stale/different
+    static proxy — which would explain the silent drop with no 418. If a PAC exists
+    we fetch and log it (direct) to see where the browser is actually routed.
+    """
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+        )
+    except OSError as e:
+        logger.info(f"[proxy-config] couldn't open registry: {e}", stage="netfree-probe")
+        return
+
+    def _get(name):
+        try:
+            import winreg
+            return winreg.QueryValueEx(key, name)[0]
+        except OSError:
+            return None
+
+    enable, server = _get("ProxyEnable"), _get("ProxyServer")
+    pac, override = _get("AutoConfigURL"), _get("ProxyOverride")
+    logger.info(
+        f"[proxy-config] ProxyEnable={enable} ProxyServer={server!r} "
+        f"AutoConfigURL={pac!r} ProxyOverride={override!r}", stage="netfree-probe")
+
+    if pac:
+        # The browser follows this PAC; urllib ignores it. Fetch it direct and log
+        # it so we can read the actual routing rules (FindProxyForURL).
+        try:
+            with _direct_opener().open(urllib.request.Request(pac), timeout=15) as r:
+                body = r.read(8000).decode("utf-8", "replace")
+            logger.info(f"[proxy-config] PAC fetched ({len(body)}b shown):\n{body}",
+                        stage="netfree-probe")
+        except Exception as e:
+            logger.info(f"[proxy-config] PAC fetch failed: {type(e).__name__}: {e}",
+                        stage="netfree-probe")
+
+
 def _ca_contexts() -> list[tuple[str, ssl.SSLContext]]:
     """(label, context) for the system trust store and the certifi bundle.
 
@@ -292,6 +345,9 @@ def main(argv: list[str]) -> None:
     # URLs *through* the Netfree proxy; if Python sees no proxy it connects direct
     # and Netfree drops it. This line tells us which world we're in.
     logger.info(f"getproxies()={urllib.request.getproxies()}", stage="netfree-probe")
+    # The real config — does the browser follow a PAC that Python's getproxies()
+    # can't see? This is the leading explanation for 'browser works, Python silent'.
+    _proxy_config_probe()
 
     system_ctx = ssl.create_default_context()
     # Proxy matrix: DIRECT (proxies={}) vs SYSTEM proxy (proxies=None). If SYSTEM
