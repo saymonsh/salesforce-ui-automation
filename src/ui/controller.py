@@ -40,7 +40,7 @@ class Controller:
 
     def close_handoff(self):
         """Close a handed-off TYPE 2 browser cleanly: driver.quit() shuts Chrome
-        and chromedriver and frees port 9515. No-op if there's no pending handoff."""
+        and chromedriver. No-op if there's no pending handoff."""
         dm, self._handoff_dm = self._handoff_dm, None
         if dm is not None:
             dm.close_driver()
@@ -73,8 +73,8 @@ class Controller:
         self._start_run(source)
 
     def _start_run(self, source):
-        # A pending TYPE 2 handoff still holds chromedriver on port 9515 — close it
-        # cleanly before the new run grabs the port (mirrors the old behaviour where
+        # A pending TYPE 2 handoff still holds a live browser/driver — close it
+        # cleanly before the new run starts (mirrors the old behaviour where
         # starting a run discarded an unfinished handoff, just without leaking it).
         self.close_handoff()
 

@@ -1,9 +1,9 @@
 import os
 import subprocess
 import threading
-from time import sleep
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from src.automation.win_window import (
     find_chrome_window,
     find_window_by_title,
@@ -16,6 +16,33 @@ from src.core.utils import smart_sleep
 
 
 class DriverManager:
+    """Owns the chromedriver/Chrome lifecycle.
+
+    Driver acquisition history (the machine this runs on is a managed
+    government/municipal Windows box behind a proxy):
+
+    * The PROBLEM that shaped the original design: `webdriver-manager` / any tool
+      that honours the proxy environment crashed here. We chased it down (see the
+      `diag/netfree-machine` investigation) and the real cause was a **stray
+      User-scope `HTTP_PROXY` env var** pointing at a dead box — Python read it
+      (env is consulted before the registry), the browser didn't. It was never
+      certs, never a blocked CDN, never the port.
+    * The OLD workaround: ship a hardcoded `C:\\chromedriver\\chromedriver.exe`,
+      launch it as a subprocess on a fixed `--port=9515`, and avoid all downloads.
+      That "worked" only by sidestepping the network; 9515 was a coincidence, not a
+      fix. The one thing that genuinely mattered was `setup_proxy()` stripping the
+      proxy so the *localhost* WebDriver call goes direct.
+    * The CURRENT approach: let **Selenium Manager** (built into Selenium 4.6+)
+      resolve and, if needed, download the chromedriver matching the installed
+      Chrome. We proved it works here (incl. a cold download) once the proxy is
+      stripped. This drops the hardcoded path, the manual subprocess, the fixed
+      port, and the version-drift maintenance. `setup_proxy()` stays — it's the
+      actual load-bearing piece. Edge case (Chrome updated *and* direct egress
+      closed at the same moment): acquisition fails with a clear recovery hint
+      rather than a cryptic crash; recovery is to run with direct egress or drop a
+      matching chromedriver on PATH.
+    """
+
     def __init__(self):
         self.driver = None
         self.chromedriver_process = None
@@ -33,6 +60,15 @@ class DriverManager:
 
     @staticmethod
     def setup_proxy():
+        """Strip any proxy from the environment and exempt localhost.
+
+        LOAD-BEARING — do not remove. On the managed deployment machine a stray/org
+        proxy in the environment otherwise (a) routes the *localhost* WebDriver call
+        through a filter that mangles the reply into non-JSON ("'str' object has no
+        attribute 'get'"), and (b) can break Selenium Manager's driver download.
+        Stripping it here is the piece that actually made driver setup work — see the
+        class docstring.
+        """
         os.environ.pop('HTTP_PROXY', None)
         os.environ.pop('HTTPS_PROXY', None)
         os.environ.pop('http_proxy', None)
@@ -40,28 +76,11 @@ class DriverManager:
         os.environ['NO_PROXY'] = '127.0.0.1,localhost'
 
     def launch_chromedriver(self):
-        chromedriver_path = r"C:\chromedriver\chromedriver.exe"
-        if not os.path.exists(chromedriver_path):
-             # Fallback or error if needed, but for now strictly matching original
-             pass
-        # Capture chromedriver's own output so it streams into the activity feed
-        # too (it's a separate process that otherwise writes straight to the OS
-        # console, bypassing the Python stdout redirect). A reader thread also
-        # prevents the pipe from filling and blocking the subprocess.
-        self.chromedriver_process = subprocess.Popen(
-            [chromedriver_path, "--port=9515"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            encoding="utf-8",
-            errors="replace",
-        )
-        threading.Thread(
-            target=self._pump_output, args=(self.chromedriver_process,), daemon=True
-        ).start()
-        sleep(2)
-        return self.chromedriver_process
+        """No-op, kept for interface symmetry (``_setup_driver`` and
+        ``DemoDriverManager`` both call it). There's no separate subprocess to
+        pre-spawn anymore: Selenium Manager launches chromedriver inside
+        ``create_driver()`` on a free port it picks itself."""
+        return None
 
     @staticmethod
     def _pump_output(proc):
@@ -69,10 +88,13 @@ class DriverManager:
 
         chromedriver is a separate process; its raw lines are passed through
         verbatim (no timestamp/level prefix) so the exact driver output is
-        visible in the feed/console.
+        visible in the feed/console. Selenium's Service opens the pipe in binary
+        mode, so decode defensively.
         """
         try:
             for line in proc.stdout:
+                if isinstance(line, (bytes, bytearray)):
+                    line = line.decode("utf-8", "replace")
                 line = line.rstrip("\n")
                 if line.strip():
                     logger.debug(line, stage="chromedriver")
@@ -80,7 +102,7 @@ class DriverManager:
             pass
 
     def create_driver(self):
-        # Setup Proxy
+        # Strip the proxy BEFORE building the driver (see setup_proxy docstring).
         self.setup_proxy()
 
         # Options
@@ -113,11 +135,31 @@ class DriverManager:
         chrome_options.add_argument("--disable-features=CalculateNativeWindowOcclusion")
         logger.debug("chrome options set", stage="driver")
 
-        chromedriver_url = "http://127.0.0.1:9515"
-        self.driver = webdriver.Remote(
-            command_executor=chromedriver_url,
-            options=chrome_options
-        )
+        # Selenium Manager (built into Selenium 4.6+) resolves — and if needed
+        # downloads — the chromedriver matching the installed Chrome, then Service
+        # launches it on a free port. No hardcoded path, no version pin, no fixed
+        # port. The NO_PROXY set above keeps that localhost connection direct.
+        service = Service(log_output=subprocess.PIPE)
+        try:
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+        except Exception as e:
+            # The edge case (Chrome updated AND direct egress closed at once): make
+            # the failure legible and point at recovery instead of crashing opaquely.
+            logger.error(
+                f"chromedriver acquisition/launch failed ({type(e).__name__}: {e}). "
+                "Selenium Manager needs direct internet for the matching driver. "
+                "Recovery: run with direct egress (proxy stripped — setup_proxy does "
+                "this), or place a matching chromedriver on PATH / set SE_CHROMEDRIVER.",
+                stage="driver", exc=True,
+            )
+            raise
+        # Hand the chromedriver process to the rest of the lifecycle: the embedding
+        # locates Chrome by this PID, and close_driver terminates it as a watchdog.
+        self.chromedriver_process = self.driver.service.process
+        if self.chromedriver_process and self.chromedriver_process.stdout:
+            threading.Thread(
+                target=self._pump_output, args=(self.chromedriver_process,), daemon=True
+            ).start()
         logger.info("chrome launched", stage="driver")
         self._report_browser_window()
         return self.driver
