@@ -237,8 +237,14 @@ class DriverManager:
         ``driver.quit()``: with Selenium Manager's Service, quit() WAITS ~2.5s for the
         service to stop, which made Stop/"done" feel sluggish. A tree-kill by our own
         chromedriver PID closes everything in well under a second and can't wedge the
-        UI (#8). It's keyed off the PID of the chromedriver process we created here,
-        so — unlike a stored HWND — it can never touch an unrelated process.
+        UI (#8).
+
+        Safety (this is a force-kill — see CLAUDE.md): we target the PID of the
+        chromedriver process WE created, not a recycled HWND; ``/T`` only reaps that
+        PID's descendants (our Chrome), never the user's own Chrome; and the
+        ``IMAGENAME eq chromedriver.exe`` filter means that if the PID was recycled
+        (e.g. chromedriver died during a long handoff and Windows reused it), taskkill
+        simply matches nothing instead of killing a stranger.
 
         ponytail: the abrupt kill skips Chrome's graceful temp-profile cleanup, so a
         small user-data dir leaks into %TEMP% per run. Acceptable for an
@@ -252,10 +258,12 @@ class DriverManager:
         if not pid:
             return
         try:
-            # /T kills the whole tree (chromedriver + Chrome); /F forces it. Bounded
-            # so a stuck taskkill can't hang the caller. taskkill is a Windows builtin.
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                           capture_output=True, timeout=5)
+            # /F force, /T whole tree (chromedriver + its Chrome). The IMAGENAME
+            # filter is the PID-reuse guard: kill the PID only if it's still really
+            # chromedriver.exe. Bounded so a stuck taskkill can't hang the caller.
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid), "/FI", "IMAGENAME eq chromedriver.exe"],
+                capture_output=True, timeout=5)
             logger.debug(f"driver closed — killed chromedriver tree (pid {pid})", stage="driver")
         except Exception as e:
             logger.debug(f"close_driver taskkill failed: {e}", stage="driver")
