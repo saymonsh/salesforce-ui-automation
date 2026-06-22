@@ -21,6 +21,7 @@ TYPE_OPTIONS = [
 # visible at the moment of action, with a confirm before an upsert.
 
 
+
 @dataclass
 class SettingsFields:
     user_name: ft.TextField
@@ -77,26 +78,32 @@ def build_settings_view(
     init_dev = initial_values.get("DEV_MODE", "") == "True"
     init_ssh = initial_values.get("SSH_MIRROR", "") == "True"
 
-    ssh_mirror_switch = ft.Switch(label="שיקוף לוג SSH", value=init_ssh, label_text_style=ft.TextStyle(color=Color.TEXT_PRIMARY))
-    ssh_remote_field = text_field("כתובת SSH (user@host:/path)", initial_values.get("SSH_REMOTE", ""))
+    ssh_remote_field = text_field("כתובת SSH", initial_values.get("SSH_REMOTE", ""))
+    ssh_remote_field.hint_text = "user@host:/path"
+    ssh_remote_field.rtl = False
     ssh_key_path_field = text_field("נתיב מפתח SSH", initial_values.get("SSH_KEY_PATH", ""))
+    ssh_key_path_field.rtl = False
 
-    ssh_details = ft.Container(
+    ssh_fields = ft.Container(
         content=ft.Column(spacing=Space.MD, controls=[
-            row((ssh_mirror_switch, 12)),
             row((ssh_remote_field, 12)),
             row((ssh_key_path_field, 12)),
         ]),
-        visible=init_dev,
+        visible=init_ssh,
     )
 
-    dev_mode_switch = ft.Switch(label="מצב מפתחים", value=init_dev, label_text_style=ft.TextStyle(color=Color.TEXT_PRIMARY))
+    def _on_ssh_toggle(_e) -> None:
+        ssh_fields.visible = ssh_mirror_switch.value
+        ssh_fields.update()
 
-    def _on_dev_toggle(_e) -> None:
-        ssh_details.visible = dev_mode_switch.value
-        ssh_details.update()
+    _switch_kw = dict(
+        active_color=Color.BRAND, active_track_color=Color.BORDER,
+        inactive_thumb_color=Color.TEXT_SECONDARY, inactive_track_color=Color.BORDER,
+        label_text_style=ft.TextStyle(color=Color.TEXT_SECONDARY),
+    )
 
-    dev_mode_switch.on_change = _on_dev_toggle
+    ssh_mirror_switch = ft.Switch(value=init_ssh, label="שיקוף לוג SSH", on_change=_on_ssh_toggle, **_switch_kw)
+    dev_mode_switch = ft.Switch(value=init_dev, label="מצב מפתחים", **_switch_kw)
 
     fields = SettingsFields(
         user_name=text_field("USER_NAME", initial_values.get("USER_NAME", "")),
@@ -140,6 +147,23 @@ def build_settings_view(
             controls=[ft.Column(spacing=Space.MD, controls=list(rows))],
         )
 
+    ssh_mirror_row = ft.Row(controls=[ssh_mirror_switch], alignment=ft.MainAxisAlignment.START)
+
+    advanced_section = ft.Container(
+        content=accordion(
+            "הגדרות מתקדמות",
+            ssh_mirror_row,
+            ssh_fields,
+        ),
+        visible=init_dev,
+    )
+
+    def _on_dev_toggle(_e) -> None:
+        advanced_section.visible = dev_mode_switch.value
+        advanced_section.update()
+
+    dev_mode_switch.on_change = _on_dev_toggle
+
     fields_column = ft.Column(
         spacing=Space.SM,
         expand=True,
@@ -157,16 +181,14 @@ def build_settings_view(
                 row((fields.user_name, 6), (fields.password, 6)),
                 row((fields.secret_key, 12)),
             ),
-            accordion(
-                "מפתחים",
-                row((dev_mode_switch, 12)),
-                ssh_details,
-            ),
+            advanced_section,
         ],
     )
 
     save_button = primary_button("שמור הגדרות", icon=ft.Icons.SAVE_OUTLINED)
     save_button.on_click = lambda _: on_save(fields)
+
+    dev_footer = dev_mode_switch
 
     container = ft.Container(
         expand=True,
@@ -179,7 +201,11 @@ def build_settings_view(
                 heading("הגדרות משתמש"),
                 ft.Divider(color=Color.BORDER),
                 ft.Container(content=fields_column, expand=True),
-                ft.Row(controls=[save_button], alignment=ft.MainAxisAlignment.END),
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[dev_footer, save_button],
+                ),
             ],
         ),
     )
