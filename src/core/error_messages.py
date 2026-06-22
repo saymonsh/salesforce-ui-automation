@@ -79,12 +79,12 @@ def humanize_error(exc, stage: str | None = None) -> tuple[str, str]:
     if etype in ("WebDriverException", "SessionNotCreatedException", "MaxRetryError") \
             or st == "driver" or any(m in low for m in driver_markers):
         if "version" in low or "session not created" in low:
-            return ("גרסת chromedriver לא תואמת ל-Chrome",
-                    "גרסת ה-chromedriver אינה תואמת לגרסת Chrome המותקנת. עדכן את "
-                    r"chromedriver.exe לגרסה התואמת (ב-C:\chromedriver) ונסה שוב.")
+            return ("שגיאה בהפעלת דרייבר Chrome",
+                    "הדרייבר נטען ומותאם אוטומטית לגרסת Chrome. אם הבעיה נמשכת, ודא "
+                    "חיבור אינטרנט ישיר (להורדת הדרייבר התואם בפעם הראשונה) ונסה שוב.")
         return ("הדפדפן (Chrome) לא הופעל",
-                "Chrome לא נפתח או נסגר באמצע. ודא ש-chromedriver מותקן ותקין, סגור "
-                "חלונות Chrome פתוחים ונסה שוב.")
+                "Chrome לא נפתח או נסגר באמצע. סגור חלונות Chrome פתוחים, ודא חיבור "
+                "אינטרנט ישיר (כדי שהדרייבר יורד אוטומטית) ונסה שוב.")
 
     # 3. Salesforce / Aura API.
     if "client out of sync" in low:
