@@ -55,7 +55,7 @@ salesforce-ui-automation/
 *   **Windows** (האפליקציה תלויה ב-Win32 — הטמעת הדפדפן, נעילת instance יחיד).
 *   Python 3.10 ומעלה.
 *   Google Chrome מותקן.
-*   `chromedriver` תואם לגרסת הכרום שלך, בנתיב הקבוע `C:\chromedriver\chromedriver.exe`.
+*   `chromedriver` **לא** צריך התקנה ידנית — Selenium Manager מאתר ומוריד אוטומטית את הגרסה התואמת. נדרש חיבור אינטרנט ישיר להורדה הראשונה של כל גרסת Chrome (אחר כך נשמר במטמון).
 
 ### התקנה
 1.  שכפל את המאגר (Clone).
@@ -79,7 +79,7 @@ python -m src.main
 ## ⚙️ ארכיטקטורה בקצרה
 
 *   **`src/ui/`** — ממשק Flet ב-MVC: ה-View בונה את המסך, ה-Controller מאזין לאירועים ומריץ את ה-Processor המתאים ב-Thread נפרד כדי לא לתקוע את הממשק. עדכוני UI מה-Thread חוזרים ללולאת האירועים של Flet.
-*   **`src/automation/`** — מנוע Selenium: `BaseProcessor` מחזיק את מחזור החיים של הדרייבר, ההתחברות (כולל TOTP) ומנגנון העצירה; כל TYPE יורש ממנו. `driver_manager` מפעיל את chromedriver על פורט 9515, מאתר את חלון ה-Chrome ומוסר אותו ל-UI להטמעה.
+*   **`src/automation/`** — מנוע Selenium: `BaseProcessor` מחזיק את מחזור החיים של הדרייבר, ההתחברות (כולל TOTP) ומנגנון העצירה; כל TYPE יורש ממנו. `driver_manager` מקבל דרייבר דרך Selenium Manager (`webdriver.Chrome`), מנקה משתני proxy מהסביבה, מאתר את חלון ה-Chrome ומוסר אותו ל-UI להטמעה.
 *   **`src/core/`** — הגדרות (singleton של `config.ini`), קבועים, utils של עצירה שיתופית, ושני ערוצי הלוגים (סטטוס למפעיל / פיד טכני — ראו `docs/logging-channels.md`).
 
 ## ⚠️ הערות חשובות (Constraints)

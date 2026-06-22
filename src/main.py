@@ -63,8 +63,9 @@ def _acquire_single_instance_lock() -> bool:
 
     This replaces the old startup sweep that force-killed every chromedriver and
     automation Chrome on the machine. The real risk it guarded against was a second
-    accidental launch colliding with a live run over port 9515; the mutex prevents
-    that outright without touching any unrelated process (issue #19 review)."""
+    accidental launch colliding with a live run (a duplicate browser/driver and
+    embedding); the mutex prevents that outright without touching any unrelated
+    process (issue #19 review)."""
     global _INSTANCE_MUTEX
     try:
         import ctypes
