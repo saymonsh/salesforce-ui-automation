@@ -19,8 +19,8 @@ class SettingsController:
                 "ACT_NU": parm.ACT_NU or "",
                 "URL": parm.URL or "",
                 "TYPE": str(parm.TYPE or ""),
-                "DEV_MODE": "False",
-                "SSH_MIRROR": "False",
+                "DEV_MODE": str(parm.DEV_MODE),
+                "SSH_MIRROR": str(parm.SSH_MIRROR_ENABLED),
                 "SSH_REMOTE": parm.SSH_REMOTE or "",
                 "SSH_KEY_PATH": parm.SSH_KEY_PATH or "",
             },
@@ -47,5 +47,6 @@ class SettingsController:
             self.main_view.show_alert("שגיאת הגדרות", f"שגיאה בשמירת ההגדרות:\n{str(e)}", "error")
             return
 
+        self.main_view.feed_button.visible = parm.DEV_MODE
         self.main_view.switch_to_main()
         self.main_view.set_status("Saved")

@@ -266,6 +266,7 @@ class MainView:
         self.feed_button = ft.IconButton(
             ft.Icons.TERMINAL_ROUNDED, icon_color=Color.TEXT_SECONDARY, tooltip="זרם פעילות",
             on_click=lambda _: self.show_feed_dialog(),
+            visible=parm.DEV_MODE,
         )
         self.logs_list = ft.ListView(
             expand=True, spacing=Space.XS, auto_scroll=True, on_scroll=self._on_feed_scroll,

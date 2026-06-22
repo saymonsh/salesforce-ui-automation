@@ -57,8 +57,16 @@ class Config:
             self.DEBUG_LOGGING = self.parser.getboolean('Logging', 'DEBUG', fallback=False)
 
             # Developer mode — unlocks SSH log mirror and other dev tools.
-            self.DEV_MODE = self.parser.getboolean('Developer', 'ENABLED', fallback=False)
-            self.SSH_MIRROR_ENABLED = self.parser.getboolean('Developer', 'SSH_MIRROR', fallback=False)
+            # Dev mode and SSH mirror are always off on fresh app launch — the
+            # operator must opt in each session. Within a session, reload()
+            # preserves the running value (set by _save_settings).
+            if not hasattr(self, '_initialized'):
+                self.DEV_MODE = False
+                self.SSH_MIRROR_ENABLED = False
+                self._initialized = True
+            else:
+                self.DEV_MODE = self.parser.getboolean('Developer', 'ENABLED', fallback=False)
+                self.SSH_MIRROR_ENABLED = self.parser.getboolean('Developer', 'SSH_MIRROR', fallback=False)
             self.SSH_REMOTE = self.parser.get('Developer', 'SSH_REMOTE', fallback='')
             self.SSH_KEY_PATH = self.parser.get('Developer', 'SSH_KEY_PATH', fallback='')
 
