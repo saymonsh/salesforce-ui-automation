@@ -77,7 +77,7 @@ def build_settings_view(
     init_dev = initial_values.get("DEV_MODE", "") == "True"
     init_ssh = initial_values.get("SSH_MIRROR", "") == "True"
 
-    ssh_mirror_switch = ft.Switch(label="שיקוף לוג SSH", value=init_ssh, label_style=ft.TextStyle(color=Color.TEXT_PRIMARY))
+    ssh_mirror_switch = ft.Switch(label="שיקוף לוג SSH", value=init_ssh, label_text_style=ft.TextStyle(color=Color.TEXT_PRIMARY))
     ssh_remote_field = text_field("כתובת SSH (user@host:/path)", initial_values.get("SSH_REMOTE", ""))
     ssh_key_path_field = text_field("נתיב מפתח SSH", initial_values.get("SSH_KEY_PATH", ""))
 
@@ -90,7 +90,7 @@ def build_settings_view(
         visible=init_dev,
     )
 
-    dev_mode_switch = ft.Switch(label="מצב מפתחים", value=init_dev, label_style=ft.TextStyle(color=Color.TEXT_PRIMARY))
+    dev_mode_switch = ft.Switch(label="מצב מפתחים", value=init_dev, label_text_style=ft.TextStyle(color=Color.TEXT_PRIMARY))
 
     def _on_dev_toggle(_e) -> None:
         ssh_details.visible = dev_mode_switch.value
