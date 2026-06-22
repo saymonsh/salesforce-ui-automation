@@ -135,3 +135,8 @@ class AutomationWorker:
             # Guarantee of Completion:
             # Emit final resolution state to UI
             self.signals.finished.emit(success, message, detail, summary)
+            # Diag (diag/netfree-machine): push the full on-disk debug log to the
+            # server so it's viewable over HTTPS from an unfiltered machine. Async
+            # + best-effort: never delays or breaks run completion.
+            from src.core.log_mirror import push_async
+            push_async()

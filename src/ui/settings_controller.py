@@ -19,6 +19,10 @@ class SettingsController:
                 "ACT_NU": parm.ACT_NU or "",
                 "URL": parm.URL or "",
                 "TYPE": str(parm.TYPE or ""),
+                "DEV_MODE": str(parm.DEV_MODE),
+                "SSH_MIRROR": str(parm.SSH_MIRROR_ENABLED),
+                "SSH_REMOTE": parm.SSH_REMOTE or "",
+                "SSH_KEY_PATH": parm.SSH_KEY_PATH or "",
             },
             on_save=self._save_settings,
         )
@@ -32,6 +36,10 @@ class SettingsController:
         parm.update_config("Activity", "NUMBER", fields.act_nu.value)
         parm.update_config("Salesforce", "URL", fields.url.value)
         parm.update_config("Salesforce", "TYPE", fields.type_value.value)
+        parm.update_config("Developer", "ENABLED", str(fields.dev_mode.value))
+        parm.update_config("Developer", "SSH_MIRROR", str(fields.ssh_mirror.value))
+        parm.update_config("Developer", "SSH_REMOTE", fields.ssh_remote.value)
+        parm.update_config("Developer", "SSH_KEY_PATH", fields.ssh_key_path.value)
 
         try:
             parm.reload()
@@ -39,5 +47,6 @@ class SettingsController:
             self.main_view.show_alert("שגיאת הגדרות", f"שגיאה בשמירת ההגדרות:\n{str(e)}", "error")
             return
 
+        self.main_view.feed_button.visible = parm.DEV_MODE
         self.main_view.switch_to_main()
         self.main_view.set_status("Saved")

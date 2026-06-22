@@ -6,8 +6,24 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import flet as ft
 
+from src.core.logger import logger
 from src.ui.controller import Controller
 from src.ui.main_window import MainView
+
+
+def _bind_debug_file() -> None:
+    """Mirror the debug channel to logs/debug.log (diag/netfree-machine).
+
+    On the filtered machine the in-app feed can't be read remotely, so this
+    on-disk file is what gets pulled out over SSH. Best-effort: a failure here
+    must never block startup."""
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        logs_dir = os.path.join(root, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+        logger.bind_file(os.path.join(logs_dir, "debug.log"))
+    except Exception:
+        pass
 
 
 class _FeedStream:
@@ -45,6 +61,7 @@ class _FeedStream:
 
 
 def build_app(page: ft.Page) -> None:
+    _bind_debug_file()
     view = MainView(page)
     Controller(page, view)
     # Route the running automation's terminal output into the activity feed.
