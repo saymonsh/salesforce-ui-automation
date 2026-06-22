@@ -30,6 +30,10 @@ class SettingsFields:
     act_nu: ft.TextField
     url: ft.TextField
     type_value: SegmentedSelect
+    dev_mode: ft.Switch
+    ssh_mirror: ft.Switch
+    ssh_remote: ft.TextField
+    ssh_key_path: ft.TextField
 
 
 def build_settings_view(
@@ -69,6 +73,31 @@ def build_settings_view(
         act_row.update()
         url_row.update()
 
+    # --- Developer mode controls ---
+    init_dev = initial_values.get("DEV_MODE", "") == "True"
+    init_ssh = initial_values.get("SSH_MIRROR", "") == "True"
+
+    ssh_mirror_switch = ft.Switch(label="שיקוף לוג SSH", value=init_ssh, label_style=ft.TextStyle(color=Color.TEXT_PRIMARY))
+    ssh_remote_field = text_field("כתובת SSH (user@host:/path)", initial_values.get("SSH_REMOTE", ""))
+    ssh_key_path_field = text_field("נתיב מפתח SSH", initial_values.get("SSH_KEY_PATH", ""))
+
+    ssh_details = ft.Container(
+        content=ft.Column(spacing=Space.MD, controls=[
+            row((ssh_mirror_switch, 12)),
+            row((ssh_remote_field, 12)),
+            row((ssh_key_path_field, 12)),
+        ]),
+        visible=init_dev,
+    )
+
+    dev_mode_switch = ft.Switch(label="מצב מפתחים", value=init_dev, label_style=ft.TextStyle(color=Color.TEXT_PRIMARY))
+
+    def _on_dev_toggle(_e) -> None:
+        ssh_details.visible = dev_mode_switch.value
+        ssh_details.update()
+
+    dev_mode_switch.on_change = _on_dev_toggle
+
     fields = SettingsFields(
         user_name=text_field("USER_NAME", initial_values.get("USER_NAME", "")),
         password=text_field(
@@ -83,6 +112,10 @@ def build_settings_view(
         type_value=SegmentedSelect(
             "TYPE", TYPE_OPTIONS, init_type, on_change=_on_type_change
         ),
+        dev_mode=dev_mode_switch,
+        ssh_mirror=ssh_mirror_switch,
+        ssh_remote=ssh_remote_field,
+        ssh_key_path=ssh_key_path_field,
     )
 
     def accordion(title: str, *rows: ft.Control, expanded: bool = False) -> ft.ExpansionTile:
@@ -123,6 +156,11 @@ def build_settings_view(
                 "פרטי התחברות",
                 row((fields.user_name, 6), (fields.password, 6)),
                 row((fields.secret_key, 12)),
+            ),
+            accordion(
+                "מפתחים",
+                row((dev_mode_switch, 12)),
+                ssh_details,
             ),
         ],
     )

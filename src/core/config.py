@@ -56,6 +56,12 @@ class Config:
             # DEBUG-level lines (selectors, payloads, timings) are suppressed.
             self.DEBUG_LOGGING = self.parser.getboolean('Logging', 'DEBUG', fallback=False)
 
+            # Developer mode — unlocks SSH log mirror and other dev tools.
+            self.DEV_MODE = self.parser.getboolean('Developer', 'ENABLED', fallback=False)
+            self.SSH_MIRROR_ENABLED = self.parser.getboolean('Developer', 'SSH_MIRROR', fallback=False)
+            self.SSH_REMOTE = self.parser.get('Developer', 'SSH_REMOTE', fallback='')
+            self.SSH_KEY_PATH = self.parser.get('Developer', 'SSH_KEY_PATH', fallback='')
+
         except KeyError as e:
             raise KeyError(f"Missing configuration key: {e}")
         except Exception as e:

@@ -14,12 +14,9 @@ import os
 import subprocess
 import threading
 
+from src.core.config import config_instance as parm
 from src.core.logger import logger
 
-# Diag target (temporary). scp overwrites the remote file on every push, so the
-# server always shows the latest full session log — no append, no duplicates.
-_REMOTE = "root@149.28.57.61:/root/vultr-configs/shalom.5784.link/logs/automation_debug.log"
-_KEY = os.path.join(os.path.expanduser("~"), ".ssh", "netlog")
 _LOCAL = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "logs", "debug.log",
@@ -42,15 +39,16 @@ def _build_cmd(local: str, remote: str, key: str) -> list[str]:
 
 
 def _push() -> None:
+    if not parm.DEV_MODE or not parm.SSH_MIRROR_ENABLED:
+        return
+    if not parm.SSH_REMOTE or not parm.SSH_KEY_PATH:
+        logger.debug("SSH mirror enabled but remote/key not configured", stage="mirror")
+        return
     if not os.path.exists(_LOCAL):
         return
-    # ponytail: scp reads the file while the file-logger may still append to it
-    # (no shared lock across the external process). Worst case a push trails the
-    # newest line by one — acceptable for a diag mirror. Upgrade path: snapshot
-    # to a temp copy under the logger lock before scp if it ever matters.
     try:
         r = subprocess.run(
-            _build_cmd(_LOCAL, _REMOTE, _KEY),
+            _build_cmd(_LOCAL, parm.SSH_REMOTE, parm.SSH_KEY_PATH),
             capture_output=True, text=True, timeout=30,
         )
         if r.returncode == 0:
