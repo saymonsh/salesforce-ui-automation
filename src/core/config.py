@@ -3,6 +3,7 @@ import os
 import sys
 
 from src.core.constants import T3_MODE_COMPARE, T3_MODE_UPSERT
+from src.core.paths import app_data_dir, config_path
 
 
 class Config:
@@ -15,10 +16,15 @@ class Config:
         return cls._instance
 
     def _load_config(self):
-        # Determine the project root directory (assuming this file is in src/core)
-        # src/core/config.py -> ../../ -> project root
-        self.project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-        self.config_file_path = os.path.join(self.project_root, 'config.ini')
+        # Writable-file locations route through src/core/paths (ADR-001). In a
+        # source checkout app_data_dir() is the project root, so dev behaviour is
+        # unchanged; in a frozen build it is %APPDATA%\WelfareSFAutomation and
+        # config_path() seeds config.ini there on first run from the bundled
+        # example (so this import-time load finds a valid file instead of crashing
+        # the freshly-installed app).
+        self.app_data_dir = app_data_dir()
+        self.project_root = self.app_data_dir  # back-compat: was the project root; now the writable base
+        self.config_file_path = config_path()
 
         if not os.path.exists(self.config_file_path):
              # Try falling back to current working directory if not found (dev convenience)

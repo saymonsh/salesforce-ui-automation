@@ -16,11 +16,11 @@ import threading
 
 from src.core.config import config_instance as parm
 from src.core.logger import logger
+from src.core.paths import logs_dir
 
-_LOCAL = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "logs", "debug.log",
-)
+# Same on-disk debug log main.py binds (app-data logs dir — project root in a
+# source run, %APPDATA%\WelfareSFAutomation when frozen; see ADR-001).
+_LOCAL = os.path.join(logs_dir(), "debug.log")
 
 
 def _build_cmd(local: str, remote: str, key: str) -> list[str]:

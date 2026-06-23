@@ -18,10 +18,8 @@ def _bind_debug_file() -> None:
     on-disk file is what gets pulled out over SSH. Best-effort: a failure here
     must never block startup."""
     try:
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        logs_dir = os.path.join(root, "logs")
-        os.makedirs(logs_dir, exist_ok=True)
-        logger.bind_file(os.path.join(logs_dir, "debug.log"))
+        from src.core.paths import logs_dir
+        logger.bind_file(os.path.join(logs_dir(), "debug.log"))
     except Exception:
         pass
 

@@ -19,6 +19,11 @@ selenium_session.txt
 config.ini
 draft.json
 
+# Packaging build artifacts (ADR-001) — keep build.spec / installer.iss, drop output
+/build/
+/dist/
+/Output/
+
 .gemini/
 תיעוד API - דיווח נוכחות.md
 תיעוד API - יצירת מפגש.md

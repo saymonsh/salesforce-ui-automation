@@ -1,0 +1,59 @@
+# Packaging — building the per-user Windows installer (ADR-001)
+
+Turns the source app into a double-click installer that needs **no Python** and
+**raises no UAC prompt**. Full rationale: [ADR-001](adr/ADR-001-packaging.md).
+
+## Prerequisites (build machine)
+
+- The project venv with deps installed, **plus** PyInstaller:
+  ```powershell
+  pip install -r requirements-build.txt
+  ```
+- [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`iscc` on PATH).
+- The Flet desktop client must be present in the local cache
+  (`~/.flet/client/flet-desktop-full-<ver>/flet/flet.exe`). It lands there the
+  first time you run the app from source (`python -m src.main`). `build.spec`
+  zips it into the bundle so the **installed** app runs offline — without it the
+  built app downloads the client from GitHub on first launch (needs egress).
+
+## Build
+
+```powershell
+pyinstaller build.spec --noconfirm     # -> dist\Kivun\  (EXE + runtime)
+iscc installer.iss                     # -> Output\WelfareSFAutomation-Setup-<ver>.exe
+```
+
+## What the installer does (per-user, no UAC)
+
+- Installs to `%LOCALAPPDATA%\WelfareSFAutomation\` — a user-writable location,
+  so Windows never elevates (`PrivilegesRequired=lowest`).
+- Start-menu + optional desktop shortcuts under the **user's** profile.
+- A one-time **SmartScreen** warning remains (the EXE is unsigned in phase one —
+  "More info → Run anyway"). UAC and SmartScreen are different prompts; only
+  code-signing removes SmartScreen.
+
+## Where files live after install
+
+| File | Location |
+|------|----------|
+| EXE + CPython runtime + Flet client | `%LOCALAPPDATA%\WelfareSFAutomation\` |
+| `config.ini`, `draft.json`, `logs\debug.log` | `%APPDATA%\WelfareSFAutomation\` |
+
+The writable files are routed through `src/core/paths.py`: in a **source** run
+they stay in the project root (dev workflow unchanged); in a **frozen** build
+they relocate to `%APPDATA%`, and `config.ini` is seeded there on first launch
+from the bundled `config.ini.example` (so a fresh install starts instead of
+crashing at import). Uninstall leaves `%APPDATA%` data in place.
+
+## Distribution
+
+Attach `WelfareSFAutomation-Setup-<ver>.exe` to a **GitHub Release** (e.g.
+`v1.0.0`). The binary is not committed to git history — Releases only.
+
+## Clean-machine checklist (ADR-001 action items 5–6)
+
+On a Windows VM with **no Python**:
+1. Run the installer — confirm **no UAC** prompt appears.
+2. Launch the app — it embeds Chrome and runs a row without permission errors
+   writing `config.ini` / `draft.json`. `--dry_run` exercises the flow without
+   Salesforce.

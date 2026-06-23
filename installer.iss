@@ -1,0 +1,65 @@
+; Inno Setup script — per-user installer for the Welfare-Ministry Salesforce
+; automation app (ADR-001). Compile after building dist\Kivun\ with build.spec:
+;
+;     iscc installer.iss
+;
+; Produces  Output\WelfareSFAutomation-Setup-<version>.exe.
+;
+; PER-USER, NO UAC: the whole point of ADR-001. PrivilegesRequired=lowest +
+; installing under {localappdata} means Windows never shows the elevation
+; prompt. Do NOT switch to {pf}/{commonpf} or all-users — that *forces* UAC and
+; breaks the core requirement. (SmartScreen is a separate, signing-only matter;
+; this installer stays unsigned in phase one — see ADR-001.)
+
+#define AppName "Kivun"
+#define AppNameHe "כיוון"
+#define AppVersion "1.0.0"
+#define AppPublisher "Welfare Ministry SF Automation"
+#define AppExe "Kivun.exe"
+
+[Setup]
+AppId={{CC9C4D23-5816-4894-B3EE-63315C0E5B85}
+AppName={#AppNameHe}
+AppVersion={#AppVersion}
+AppPublisher={#AppPublisher}
+; --- per-user install: no UAC (ADR-001) ---
+PrivilegesRequired=lowest
+DefaultDirName={localappdata}\WelfareSFAutomation
+DisableProgramGroupPage=yes
+; Registry uninstall info lands in HKCU (per-user), never HKLM.
+UninstallDisplayName={#AppNameHe}
+UninstallDisplayIcon={app}\{#AppExe}
+; Installer output
+OutputDir=Output
+OutputBaseFilename=WelfareSFAutomation-Setup-{#AppVersion}
+Compression=lzma2
+SolidCompression=yes
+WizardStyle=modern
+; RTL Hebrew wizard
+ShowLanguageDialog=no
+
+[Languages]
+Name: "hebrew"; MessagesFile: "compiler:Languages\Hebrew.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
+
+[Files]
+; The entire PyInstaller onedir output. recursesubdirs + createallsubdirs pulls
+; in _internal\ (the CPython runtime, flet client, bundled config.ini.example).
+Source: "dist\Kivun\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+; Per-user Start menu + (optional) desktop shortcuts — {userprograms}/{userdesktop},
+; never the all-users {commonprograms} (which needs admin).
+Name: "{userprograms}\{#AppNameHe}"; Filename: "{app}\{#AppExe}"
+Name: "{userdesktop}\{#AppNameHe}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+
+[Run]
+Description: "{cm:LaunchProgram,{#AppNameHe}}"; Filename: "{app}\{#AppExe}"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+; Leave %APPDATA%\WelfareSFAutomation (config.ini / draft.json / logs) in place
+; on uninstall — those are user data, not program files. A reinstall keeps the
+; operator's credentials and draft. (Drop this section to wipe them instead.)
+Type: dirifempty; Name: "{app}"
