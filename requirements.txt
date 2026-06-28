@@ -1,6 +1,12 @@
 selenium
 pyotp
 pyperclip
-flet
-flet-desktop
+# flet and flet-desktop MUST stay the same version — they ship as a pair, and
+# the UI is tuned to specific Flet 0.84 runtime behaviour (icon caching, the
+# coroutine window.close(), TextField caret/blur quirks — see comments in
+# main_window.py / data_grid.py). Pinned to the version proven at runtime, for
+# reproducible release installers; bump deliberately and re-test the embedding
+# and grid before changing.
+flet==0.84.0
+flet-desktop==0.84.0
 tzdata
