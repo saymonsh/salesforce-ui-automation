@@ -93,10 +93,10 @@ jobs:
           $exe = (Get-ChildItem Output/*.exe | Select-Object -First 1).FullName
           $ver = (Select-String -Path src/core/version.py -Pattern '__version__\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
           Write-Host "Pushing $exe (v$ver) to VPS mirror…"
-          # Raw body upload (not multipart) so the VPS endpoint stays stdlib-only.
+          # multipart (field names: version, file) — matches the formidable-based
+          # endpoint in the shalom.5784.link Node app (see vps/README.md).
           curl.exe --fail --silent --show-error `
             -H "Authorization: Bearer $env:KIVUN_UPLOAD_TOKEN" `
-            -H "X-Kivun-Version: $ver" `
-            -H "Content-Type: application/octet-stream" `
-            --data-binary "@$exe" `
+            -F "version=$ver" `
+            -F "file=@$exe" `
             $env:KIVUN_UPLOAD_URL

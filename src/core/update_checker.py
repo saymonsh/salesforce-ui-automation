@@ -26,9 +26,10 @@ REPO = "saymonsh/salesforce-ui-automation"
 _LATEST_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 _TIMEOUT = 5  # seconds; a filtered network must fail fast, not hang the thread
 
-# VPS mirror layout (must match where CI uploads and where SSH can read).
-# A fixed dir on the box keyed by SSH_REMOTE's host; see docs/packaging.md.
-REMOTE_UPDATE_DIR = "/srv/kivun-updates"
+# VPS mirror layout (must match where the upload endpoint writes and where SSH
+# can read). The endpoint lives in the shalom.5784.link Node app and writes into
+# its host-mounted project dir, so the files land here on the box. See vps/.
+REMOTE_UPDATE_DIR = "/root/vultr-configs/shalom.5784.link/kivun-updates"
 _MANIFEST_NAME = "latest.json"
 _SCP_OPTS = [  # mirror log_mirror.py: never prompt, never hang on a dead box
     "-o", "BatchMode=yes",
