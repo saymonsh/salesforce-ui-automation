@@ -16,6 +16,7 @@ from src.automation.win_window import (
 )
 from src.core.constants import APP_WINDOW_TITLE, T3_MODE_COMPARE, T3_MODE_UPSERT
 from src.core.config import config_instance as parm
+from src.core.paths import bundle_dir
 from src.core.status_messages import Status
 from src.core.utils import ltr_isolate
 from src.ui.data_grid import DataGridView
@@ -31,8 +32,7 @@ _LEVEL_COLORS = {
     "SUCCESS": Term.SUCCESS,
 }
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_BG_PATH = os.path.join(_ROOT, "assets", "icons", "bg.png")
+_BG_PATH = os.path.join(bundle_dir(), "assets", "icons", "bg.png")
 
 _BG_OPACITY = 0.80
 _GLASS_PANEL = ft.Colors.with_opacity(0.55, "#ffffff")
@@ -1446,8 +1446,14 @@ class MainView:
         action. Used to gate the TYPE 3 upsert run, which writes to production
         irreversibly — the operator must opt in each time. `on_confirm` runs only
         if they pick the confirm button."""
-        icon = ft.Icons.ERROR_OUTLINE_ROUNDED if level == "error" else ft.Icons.WARNING_AMBER_ROUNDED
-        icon_color = Color.DANGER if level == "error" else Color.ACTION_REQUIRED
+        icon = {
+            "error": ft.Icons.ERROR_OUTLINE_ROUNDED,
+            "info": ft.Icons.INFO_OUTLINE_ROUNDED,
+        }.get(level, ft.Icons.WARNING_AMBER_ROUNDED)
+        icon_color = {
+            "error": Color.DANGER,
+            "info": Color.BRAND,
+        }.get(level, Color.ACTION_REQUIRED)
         dialog = ft.AlertDialog(
             modal=True, rtl=True,
             title=ft.Row(spacing=Space.SM, controls=[

@@ -14,15 +14,16 @@ The grid itself owns the model⇄dict translation (``export_state`` /
 import json
 import os
 
-from src.core.config import config_instance as parm
+from src.core.paths import app_data_dir
 
-# Lives beside config.ini in the project root and is git-ignored — it is a local,
-# per-machine scratch file, not shared state.
+# Lives beside config.ini in the writable app-data dir (the project root in a
+# source run, %APPDATA%\WelfareSFAutomation in a frozen build — see ADR-001) and
+# is git-ignored: a local, per-machine scratch file, not shared state.
 _DRAFT_FILENAME = "draft.json"
 
 
 def _draft_path() -> str:
-    return os.path.join(parm.project_root, _DRAFT_FILENAME)
+    return os.path.join(app_data_dir(), _DRAFT_FILENAME)
 
 
 def load_draft() -> dict | None:

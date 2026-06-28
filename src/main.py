@@ -7,6 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import flet as ft
 
 from src.core.logger import logger
+from src.core.paths import bundle_dir
 from src.ui.controller import Controller
 from src.ui.main_window import MainView
 
@@ -18,10 +19,8 @@ def _bind_debug_file() -> None:
     on-disk file is what gets pulled out over SSH. Best-effort: a failure here
     must never block startup."""
     try:
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        logs_dir = os.path.join(root, "logs")
-        os.makedirs(logs_dir, exist_ok=True)
-        logger.bind_file(os.path.join(logs_dir, "debug.log"))
+        from src.core.paths import logs_dir
+        logger.bind_file(os.path.join(logs_dir(), "debug.log"))
     except Exception:
         pass
 
@@ -112,8 +111,12 @@ def main() -> None:
         )
         sys.exit(0)
     try:
-        # Absolute path so assets resolve regardless of the launch cwd.
-        assets_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+        # Assets dir via bundle_dir() (ADR-001): project root in a source run, the
+        # bundle's _internal when frozen. The old __file__-walk pointed one level
+        # ABOVE _internal in a frozen build (entry __file__ is <_MEIPASS>\main.py,
+        # a level shallower than src/main.py), so Flet served no assets — blank
+        # background, missing Heebo font and logo mark.
+        assets_dir = os.path.join(bundle_dir(), "assets")
         ft.run(main=build_app, assets_dir=assets_dir)
     except (FileNotFoundError, KeyError, ValueError) as e:
         # Minimal dependency way to show error on Windows

@@ -19,13 +19,15 @@ python -m src.main --dry_run # dry-run: full UI, no Selenium/Salesforce (see bel
 python tests/test_type1_recipes.py   # run a self-check (framework-free, assert-based)
 ```
 
-There is no linter or build step. Tests are framework-free, assert-based self-checks run directly as scripts (e.g. `python tests/test_type1_recipes.py`) — there is no pytest/test runner.
+There is no linter. Tests are framework-free, assert-based self-checks run directly as scripts (e.g. `python tests/test_type1_recipes.py`) — there is no pytest/test runner.
+
+**Packaging** (ADR-001): a per-user Windows installer is built with `pyinstaller build.spec` → `iscc installer.iss`. Writable files (`config.ini`, `draft.json`, logs) route through `src/core/paths.py`: project root in a source run, `%APPDATA%\WelfareSFAutomation\` in a frozen build (seeded on first launch). See `docs/packaging.md`.
 
 **Dry-run / demo mode** (`--dry_run`, gated by `DRY_RUN` in `src/core/constants.py`): previews the whole UI with no Selenium or Salesforce. `WorkerManager` swaps in `DemoProcessor` + `DemoDriverManager`, which embed a placeholder window (e.g. mspaint) as a Chrome stand-in so the embedding/handoff flow can be exercised offline.
 
 ## Runtime prerequisites (these cause startup/runtime failures if missing)
 
-- `config.ini` must exist in the project root (copy `config.ini.example`). Missing/invalid config raises at import time because `config_instance = Config()` is constructed eagerly at module load (`src/core/config.py:98`), and `main()` surfaces it via a Windows `MessageBoxW`.
+- `config.ini` must exist where `src/core/paths.py` resolves it — the project root in a source run (copy `config.ini.example`), or `%APPDATA%\WelfareSFAutomation\` in a frozen build (auto-seeded on first launch, so a fresh install doesn't crash). Missing/invalid config still raises at import time because `config_instance = Config()` is constructed eagerly at module load (`src/core/config.py`), and `main()` surfaces it via a Windows `MessageBoxW`.
 - `chromedriver` is acquired automatically by **Selenium Manager** (built into Selenium 4.6+), which resolves/downloads the build matching the installed Chrome — no hardcoded path, no fixed port (`src/automation/driver_manager.py`). It needs direct internet for the *first* fetch of a given Chrome version (then it's cached); `setup_proxy()` strips any proxy env so that fetch and the localhost WebDriver call go direct. If acquisition fails (e.g. Chrome just updated *and* direct egress is blocked), `create_driver()` raises with a recovery hint — run with direct egress or put a matching chromedriver on PATH. (History: this replaced a hardcoded `C:\chromedriver\chromedriver.exe` + `--port=9515`, adopted to dodge a download crash that was actually caused by a stray `HTTP_PROXY` env var, not the network/port/certs.)
 - The app is Windows-only in practice: window embedding, the single-instance mutex, and error MessageBoxes all go through `ctypes.windll` (gracefully degrading to no-ops only in `win_window.py`).
 
