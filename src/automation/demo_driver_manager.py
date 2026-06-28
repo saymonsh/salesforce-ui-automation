@@ -24,7 +24,7 @@ from src.automation.win_window import (
 )
 from src.core.constants import APP_WINDOW_TITLE
 from src.core.logger import logger
-from src.core.utils import smart_sleep
+from src.core.utils import CREATE_NO_WINDOW, smart_sleep
 
 # ponytail: mspaint is the placeholder (a big blank canvas reads clearly as
 # "embedded content"). Any classic top-level window would do — swap the command
@@ -89,7 +89,8 @@ class DemoDriverManager:
         if pid:
             try:
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                               capture_output=True, check=False)
+                               capture_output=True, check=False,
+                               creationflags=CREATE_NO_WINDOW)
             except Exception:
                 pass
         self._proc = None

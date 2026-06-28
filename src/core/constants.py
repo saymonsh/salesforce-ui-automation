@@ -6,6 +6,11 @@ from src.core.version import __version__
 # window (to embed Chrome as an owned overlay, issue #19) without importing the UI.
 APP_WINDOW_TITLE = f"כיוון — Salesforce Automation  v{__version__}"
 
+# Explicit AppUserModelID — tags the app's window + (matching) shortcut so the
+# running taskbar button groups under one identity instead of spawning a second
+# button. Set on the process (main.py) and on the host window (win_window).
+APP_USER_MODEL_ID = "WelfareMinistry.Kivun"
+
 # Dry-run / demo mode: launched as `python -m src.main --dry_run`. Drives the full
 # UI lifecycle (progress, status, embedded panel) with NO Selenium, chromedriver,
 # Salesforce, or login — a throwaway window is embedded in place of Chrome so the

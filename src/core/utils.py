@@ -1,8 +1,15 @@
+import subprocess
 import time
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.common.exceptions import TimeoutException
 from src.core.exceptions import StopRequestedException
+
+# Windowed (console=False) frozen builds have no console, so every child process
+# spawned via subprocess gets Windows to allocate one — a black console window
+# that flashes on screen (notably the taskkill calls on app close). Passing this
+# flag suppresses it. 0 on non-Windows so the kwarg is harmless cross-platform.
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 # Bidirectional-text isolates. U+2066 (LEFT-TO-RIGHT ISOLATE) … U+2069 (POP
 # DIRECTIONAL ISOLATE) wrap an LTR run (a number, date, or ID) so it renders

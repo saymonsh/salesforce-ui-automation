@@ -17,6 +17,7 @@ import threading
 from src.core.config import config_instance as parm
 from src.core.logger import logger
 from src.core.paths import logs_dir
+from src.core.utils import CREATE_NO_WINDOW
 
 # Same on-disk debug log main.py binds (app-data logs dir — project root in a
 # source run, %APPDATA%\WelfareSFAutomation when frozen; see ADR-001).
@@ -50,6 +51,7 @@ def _push() -> None:
         r = subprocess.run(
             _build_cmd(_LOCAL, parm.SSH_REMOTE, parm.SSH_KEY_PATH),
             capture_output=True, text=True, timeout=30,
+            creationflags=CREATE_NO_WINDOW,
         )
         if r.returncode == 0:
             logger.debug("debug log mirrored to diag server", stage="mirror")

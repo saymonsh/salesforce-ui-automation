@@ -66,19 +66,28 @@ Pushing a `v*` tag triggers `.github/workflows/build-release.yml`, which:
 1. Builds `dist\Kivun\` with PyInstaller on a Windows runner.
 2. Compiles the Inno Setup installer.
 3. Publishes `WelfareSFAutomation-Setup-<ver>.exe` as a **GitHub Release**.
+4. Pushes the installer to the **VPS update mirror** over HTTPS (see `vps/`),
+   so the filtered gov machine can pull it over SSH. Skips silently if the
+   `KIVUN_UPLOAD_*` secrets aren't set.
 
 The binary is not committed to git history — Releases only. CI fetches the Flet
 desktop client (cached per version) before building, so the **CI-built installer
 is self-contained and works offline** on the gov target — no need to build
 locally for that. Local builds remain available for ad-hoc testing.
 
-## In-app updates
+## In-app updates (two channels)
 
-On launch (frozen builds only), `src/core/update_checker.py` asks GitHub for the
-latest release. If its tag is newer than `src/core/version.py`, the operator gets
-a dialog offering a one-click **download + install** of the new installer; the
-app then closes so the per-user installer can replace its files. The check is
-stdlib-only (`urllib`) and offline-safe — a blocked network just skips it.
+On launch (frozen builds only), `src/core/update_checker.py` checks for a newer
+build and, if found, offers a one-click **download + install**; the app then
+closes so the per-user installer can replace its files. Channel depends on setup:
+
+- **GitHub Releases** (default, open network): queries the latest release over
+  HTTPS. Stdlib-only (`urllib`), offline-safe — a blocked network just skips it.
+- **VPS mirror** (when the SSH log-mirror is configured — i.e. the gov machine):
+  GitHub is unreachable there (HTTPS out blocked), so the app `scp`-pulls
+  `latest.json` + `Setup-latest.exe` from the VPS using the existing log-mirror
+  key/host, **verifies the sha256**, then installs. CI keeps the mirror current.
+  Setup and the shared contract: [`vps/README.md`](../vps/README.md).
 
 The close-then-install race is closed by `AppMutex` in `installer.iss`: it names
 the app's single-instance mutex (from `main.py`), so Inno waits for the app to

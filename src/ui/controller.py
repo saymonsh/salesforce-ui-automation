@@ -39,45 +39,72 @@ class Controller:
             self._start_update_check()
 
     def _start_update_check(self):
-        """Run the GitHub release check on a daemon thread so a slow/blocked
-        network never delays startup; offer the update back on the UI loop."""
+        """Check for a newer build on a daemon thread (a slow/blocked network
+        must never delay startup) and offer it back on the UI loop. Channel:
+        dev-mode + SSH configured -> VPS mirror over scp (the gov machine can't
+        reach GitHub); otherwise GitHub Releases."""
         def _run():
-            from src.core.update_checker import check_for_update
-            info = check_for_update()
+            info = self._fetch_update_info()
             if info and self.page:
                 self.page.run_task(self._safe_offer_update, info)
         threading.Thread(target=_run, daemon=True).start()
 
+    def _fetch_update_info(self):
+        """Return a normalized update dict (with a ``channel`` key) or None.
+
+        Channel = SSH/VPS mirror when the SSH mirror is *configured*
+        (SSH_REMOTE + SSH_KEY_PATH in config.ini), else GitHub. We key off the
+        config fields, not the session DEV_MODE flag: DEV_MODE resets to False
+        on every launch (config.py), so it would always pick GitHub at startup —
+        but the gov machine that needs the VPS channel is exactly the one with
+        the SSH mirror persisted. (A dev box with SSH configured also pulls from
+        the mirror, which is harmless — it's the same build.)"""
+        if parm.SSH_REMOTE and parm.SSH_KEY_PATH:
+            from src.core.update_checker import check_for_update_ssh
+            info = check_for_update_ssh(parm.SSH_REMOTE, parm.SSH_KEY_PATH)
+            if info:
+                info["channel"] = "ssh"
+            return info
+        from src.core.update_checker import check_for_update
+        info = check_for_update()
+        if info:
+            info["channel"] = "github"
+        return info
+
     async def _safe_offer_update(self, info):
-        version, url, page_url = info["version"], info.get("url"), info.get("page")
-        if url:
-            # Newer installer available — offer one-click download + install.
+        version = info["version"]
+        # SSH always carries an installer; GitHub may lack a .exe asset.
+        if info["channel"] == "ssh" or info.get("url"):
             self.main_view.confirm(
                 f"גרסה חדשה זמינה ({version})",
                 "מומלץ לעדכן לגרסה האחרונה. ההורדה תתחיל וההתקנה תיפתח; "
                 "החלון הנוכחי ייסגר במהלך העדכון.",
                 "הורד והתקן",
-                lambda: self._download_update(url),
+                lambda: self._download_update(info),
                 level="info",
             )
-        elif page_url:
-            # Release exists but has no .exe asset — point the operator at it.
+        elif info.get("page"):
+            # GitHub release with no .exe asset — point the operator at it.
             self.main_view.show_alert(
                 f"גרסה חדשה זמינה ({version})",
-                f"ניתן להוריד את הגרסה האחרונה מ-GitHub:\n{page_url}",
+                f"ניתן להוריד את הגרסה האחרונה מ-GitHub:\n{info['page']}",
                 "info",
             )
 
-    def _download_update(self, url):
+    def _download_update(self, info):
         """Download the installer on a daemon thread (so the UI loop never
         blocks), launch it, then close the app so the per-user installer can
-        replace the otherwise-locked program files."""
+        replace the otherwise-locked program files. Dispatches on channel."""
         self.main_view.set_status("מוריד עדכון…")
 
         def _run():
-            from src.core.update_checker import download_and_launch
             try:
-                download_and_launch(url)
+                if info["channel"] == "ssh":
+                    from src.core.update_checker import download_and_launch_ssh
+                    download_and_launch_ssh(info["remote_exe"], parm.SSH_KEY_PATH, info["sha256"])
+                else:
+                    from src.core.update_checker import download_and_launch
+                    download_and_launch(info["url"])
             except Exception as e:
                 if self.page:
                     self.page.run_task(self._safe_update_failed, str(e))
