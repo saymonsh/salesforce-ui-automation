@@ -33,9 +33,9 @@ jobs:
       github.event.pull_request.merged == true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -47,7 +47,7 @@ jobs:
         # The Flutter client (~tens of MB) is fetched from GitHub once per Flet
         # version. Cache it so only the first build per version downloads it.
         # Keyed on the deps files since they pin the Flet version in practice.
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.flet/client
           key: flet-client-${{ runner.os }}-${{ hashFiles('requirements*.txt') }}
@@ -68,14 +68,14 @@ jobs:
         run: iscc installer.iss
 
       - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: installer
           path: Output/*.exe
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: Output/*.exe
           generate_release_notes: true
