@@ -106,7 +106,6 @@ exe = EXE(
     console=False,           # windowed app — no console window
     disable_windowed_traceback=False,
     icon=icon,
-    version_info=None,       # TODO: populate from _APP_VERSION via a .rc or pyi-set_version
 )
 
 coll = COLLECT(
