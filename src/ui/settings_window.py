@@ -40,6 +40,7 @@ class SettingsFields:
 def build_settings_view(
     initial_values: dict[str, str],
     on_save,
+    update_section: ft.Control | None = None,
 ) -> tuple[ft.Container, SettingsFields]:
 
     def row(*cells: tuple[ft.Control, int]) -> ft.ResponsiveRow:
@@ -182,6 +183,10 @@ def build_settings_view(
                 row((fields.secret_key, 12)),
             ),
             advanced_section,
+            # "אודות ועדכונים" — installed version + update status/button. Built by
+            # the controller (it owns the update channel/state); None in contexts
+            # that don't pass it.
+            *( [accordion("אודות ועדכונים", update_section)] if update_section is not None else [] ),
         ],
     )
 

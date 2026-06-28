@@ -97,6 +97,7 @@ class MainView:
         self._settings_dialog = None
         self._feed_dialog = None
         self._grid_dialog = None
+        self._updating_dialog = None  # non-dismissible "מתעדכן…" modal during a self-update
         self._logs_has_content = False
         self._running = False
         # True between a warning ('action required') finish and the next run —
@@ -756,10 +757,10 @@ class MainView:
         topbar = ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             controls=[
-                ft.Row(spacing=Space.MD, controls=[
-                    ft.Image(src="/icons/kivun_mark.svg", width=34, height=34),
-                    ft.Text("כיוון", size=20, weight=ft.FontWeight.W_700, color=Color.BRAND),
-                ]),
+                # Full brand lockup (mark + wordmark + tagline), transparent PNG on
+                # the light glass panel. Replaces the old placeholder-mark + "כיוון"
+                # text — the lockup already carries the wordmark.
+                ft.Image(src="/icons/kivun_logo.png", width=146, height=60, fit=ft.BoxFit.CONTAIN),
                 ft.Row(spacing=Space.XS, controls=[self.feed_button, self.settings_button]),
             ],
         )
@@ -1431,6 +1432,43 @@ class MainView:
             self._console_row.visible = True
         self._refresh_type()
         self._safe_update()
+
+    # --------------------------------------------------------- self-update modal
+    def show_updating_modal(self) -> None:
+        """A non-dismissible modal with a ring + live status line, shown while a
+        self-update downloads and installs. Replaces the old silent set_status →
+        bare-background flicker: a dialog is always on screen until the app closes."""
+        self._updating_ring = ft.ProgressRing(value=None, color=Color.BRAND, width=46, height=46, stroke_width=4)
+        self._updating_text = ft.Text("מתחיל עדכון…", color=Color.TEXT_PRIMARY, text_align=ft.TextAlign.CENTER)
+        self._updating_dialog = ft.AlertDialog(
+            modal=True, rtl=True,
+            shape=ft.RoundedRectangleBorder(radius=Radius.LG),
+            content=ft.Container(
+                width=360,
+                padding=ft.padding.symmetric(vertical=Space.LG, horizontal=Space.MD),
+                content=ft.Column(
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=Space.LG, tight=True,
+                    controls=[self._updating_ring, self._updating_text],
+                ),
+            ),
+        )
+        self.page.show_dialog(self._updating_dialog)
+        self._safe_update()
+
+    def set_updating(self, text: str, percent: int | None = None) -> None:
+        """Update the modal's status line. ``percent`` None → indeterminate ring."""
+        if getattr(self, "_updating_dialog", None) is None:
+            return
+        self._updating_text.value = text if percent is None else f"{text} {percent}%"
+        self._updating_ring.value = None if percent is None else max(0.0, min(1.0, percent / 100))
+        self._safe_update()
+
+    def close_updating(self) -> None:
+        d = getattr(self, "_updating_dialog", None)
+        if d is not None:
+            self._close_dialog(d)
+            self._updating_dialog = None
 
     @staticmethod
     def _alert_content(message: str) -> ft.Container:

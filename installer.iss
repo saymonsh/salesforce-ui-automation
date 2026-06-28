@@ -77,7 +77,10 @@ Name: "{userprograms}\{#AppNameHe}"; Filename: "{app}\{#AppExe}"; IconFilename: 
 Name: "{userdesktop}\{#AppNameHe}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\_internal\assets\icons\app.ico"; Tasks: desktopicon
 
 [Run]
-Description: "{cm:LaunchProgram,{#AppNameHe}}"; Filename: "{app}\{#AppExe}"; Flags: nowait postinstall skipifsilent
+; No `skipifsilent`: the in-app updater runs Setup /SILENT, and we still want the
+; app to relaunch itself after a silent update (so the operator sees it come back
+; updated, untouched). A fresh interactive install relaunches the same way.
+Description: "{cm:LaunchProgram,{#AppNameHe}}"; Filename: "{app}\{#AppExe}"; Flags: nowait postinstall
 
 [UninstallDelete]
 ; Leave %APPDATA%\WelfareSFAutomation (config.ini / draft.json / logs) in place
