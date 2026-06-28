@@ -1,0 +1,64 @@
+# Build the Windows installer and publish it as a GitHub Release.
+#
+# Triggered by pushing a version tag (v1.2.3). Also runs on PRs that touch
+# build/packaging files — build-only, no release.
+#
+# The runner needs: Python, Inno Setup, and GitHub egress (for the Flet desktop
+# client fetch). All are available on the stock windows-latest image.
+
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - "build.spec"
+      - "installer.iss"
+      - "requirements*.txt"
+      - "src/core/version.py"
+      - ".github/workflows/build-release.yml"
+
+permissions:
+  contents: write          # needed to create a GitHub Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-build.txt
+
+      - name: Build EXE (PyInstaller)
+        # Note: the Flet desktop client may not be in the runner's cache, so the
+        # built app will self-fetch it from GitHub on first launch. For offline
+        # gov installs, build locally (docs/packaging.md) where the cache exists.
+        run: pyinstaller build.spec --noconfirm
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build installer (Inno Setup)
+        run: iscc installer.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: Output/*.exe
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Output/*.exe
+          generate_release_notes: true

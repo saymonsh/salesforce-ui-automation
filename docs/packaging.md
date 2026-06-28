@@ -49,10 +49,26 @@ they relocate to `%APPDATA%`, and `config.ini` is seeded there on first launch
 from the bundled `config.ini.example` (so a fresh install starts instead of
 crashing at import). Uninstall leaves `%APPDATA%` data in place.
 
-## Distribution
+## Versioning
 
-Attach `WelfareSFAutomation-Setup-<ver>.exe` to a **GitHub Release** (e.g.
-`v1.0.0`). The binary is not committed to git history — Releases only.
+The single source of truth is `src/core/version.py` (`__version__`). It flows to:
+
+- **Window title** — shown at runtime via `APP_WINDOW_TITLE`.
+- **build.spec** — reads it at build time, writes `build/version.iss`.
+- **installer.iss** — includes `build/version.iss` for the installer filename.
+
+To release: bump `__version__`, commit, tag (`git tag v1.2.3`), push the tag.
+
+## Distribution (CI)
+
+Pushing a `v*` tag triggers `.github/workflows/build-release.yml`, which:
+
+1. Builds `dist\Kivun\` with PyInstaller on a Windows runner.
+2. Compiles the Inno Setup installer.
+3. Publishes `WelfareSFAutomation-Setup-<ver>.exe` as a **GitHub Release**.
+
+The binary is not committed to git history — Releases only. For offline/gov
+builds where the Flet client must be pre-cached, build locally (see above).
 
 ## Clean-machine checklist (ADR-001 action items 5–6)
 
