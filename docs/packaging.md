@@ -70,6 +70,18 @@ Pushing a `v*` tag triggers `.github/workflows/build-release.yml`, which:
 The binary is not committed to git history — Releases only. For offline/gov
 builds where the Flet client must be pre-cached, build locally (see above).
 
+## In-app updates
+
+On launch (frozen builds only), `src/core/update_checker.py` asks GitHub for the
+latest release. If its tag is newer than `src/core/version.py`, the operator gets
+a dialog offering a one-click **download + install** of the new installer; the
+app then closes so the per-user installer can replace its files. The check is
+stdlib-only (`urllib`) and offline-safe — a blocked network just skips it.
+
+This supersedes the ADR-001 "updates: manual" line: bumping the version, tagging,
+and pushing now both publishes the release (CI) *and* makes existing installs
+self-update.
+
 ## Clean-machine checklist (ADR-001 action items 5–6)
 
 On a Windows VM with **no Python**:

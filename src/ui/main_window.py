@@ -1446,8 +1446,14 @@ class MainView:
         action. Used to gate the TYPE 3 upsert run, which writes to production
         irreversibly — the operator must opt in each time. `on_confirm` runs only
         if they pick the confirm button."""
-        icon = ft.Icons.ERROR_OUTLINE_ROUNDED if level == "error" else ft.Icons.WARNING_AMBER_ROUNDED
-        icon_color = Color.DANGER if level == "error" else Color.ACTION_REQUIRED
+        icon = {
+            "error": ft.Icons.ERROR_OUTLINE_ROUNDED,
+            "info": ft.Icons.INFO_OUTLINE_ROUNDED,
+        }.get(level, ft.Icons.WARNING_AMBER_ROUNDED)
+        icon_color = {
+            "error": Color.DANGER,
+            "info": Color.BRAND,
+        }.get(level, Color.ACTION_REQUIRED)
         dialog = ft.AlertDialog(
             modal=True, rtl=True,
             title=ft.Row(spacing=Space.SM, controls=[

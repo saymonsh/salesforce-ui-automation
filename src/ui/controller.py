@@ -1,5 +1,8 @@
+import threading
+
 from src.core.config import config_instance as parm
 from src.core.constants import T3_MODE_COMPARE, T3_MODE_UPSERT
+from src.core.paths import is_frozen
 from src.core.status_messages import Status
 from src.core.utils import strip_isolates
 from src.ui.settings_controller import SettingsController
@@ -29,6 +32,67 @@ class Controller:
         # left running so the operator finishes a manual step. Held here so it
         # survives the worker's end and is closed cleanly on "done" / next run.
         self._handoff_dm = None
+
+        # Quietly check GitHub for a newer release on launch (frozen builds only —
+        # a source checkout has no installer to update to).
+        if is_frozen():
+            self._start_update_check()
+
+    def _start_update_check(self):
+        """Run the GitHub release check on a daemon thread so a slow/blocked
+        network never delays startup; offer the update back on the UI loop."""
+        def _run():
+            from src.core.update_checker import check_for_update
+            info = check_for_update()
+            if info and self.page:
+                self.page.run_task(self._safe_offer_update, info)
+        threading.Thread(target=_run, daemon=True).start()
+
+    async def _safe_offer_update(self, info):
+        version, url, page_url = info["version"], info.get("url"), info.get("page")
+        if url:
+            # Newer installer available — offer one-click download + install.
+            self.main_view.confirm(
+                f"גרסה חדשה זמינה ({version})",
+                "מומלץ לעדכן לגרסה האחרונה. ההורדה תתחיל וההתקנה תיפתח; "
+                "החלון הנוכחי ייסגר במהלך העדכון.",
+                "הורד והתקן",
+                lambda: self._download_update(url),
+                level="info",
+            )
+        elif page_url:
+            # Release exists but has no .exe asset — point the operator at it.
+            self.main_view.show_alert(
+                f"גרסה חדשה זמינה ({version})",
+                f"ניתן להוריד את הגרסה האחרונה מ-GitHub:\n{page_url}",
+                "info",
+            )
+
+    def _download_update(self, url):
+        """Download the installer on a daemon thread (so the UI loop never
+        blocks), launch it, then close the app so the per-user installer can
+        replace the otherwise-locked program files."""
+        self.main_view.set_status("מוריד עדכון…")
+
+        def _run():
+            from src.core.update_checker import download_and_launch
+            try:
+                download_and_launch(url)
+            except Exception as e:
+                if self.page:
+                    self.page.run_task(self._safe_update_failed, str(e))
+                return
+            if self.page:
+                self.page.run_task(self._safe_quit_after_update)
+        threading.Thread(target=_run, daemon=True).start()
+
+    async def _safe_update_failed(self, err):
+        self.main_view.show_alert("העדכון נכשל", f"הורדת העדכון נכשלה:\n{err}", "error")
+
+    async def _safe_quit_after_update(self):
+        # Graceful close: triggers main_window's CLOSE handler (draft save +
+        # embedded-browser teardown) before the installer takes over.
+        await self.page.window.close()
 
     def _attach_events(self):
         self.main_view.bind_actions(
