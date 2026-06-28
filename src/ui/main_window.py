@@ -15,6 +15,7 @@ from src.automation.win_window import (
     force_maximize,
     host_metrics,
     set_process_dpi_aware,
+    set_shortcut_app_id,
     set_window_app_id,
     set_window_icon,
 )
@@ -148,6 +149,7 @@ class MainView:
         title = self.page.title
 
         def _run():
+            self._tag_shortcuts()  # so a pinned shortcut merges with this window
             for _ in range(50):  # ~5s; the flet client may be unpacking on first run
                 hwnd = find_window_by_title(title)
                 if hwnd:
@@ -159,6 +161,25 @@ class MainView:
                 time.sleep(0.1)
 
         threading.Thread(target=_run, daemon=True).start()
+
+    def _tag_shortcuts(self) -> None:
+        """Stamp the app's .lnk shortcuts with our AppUserModelID (matching the
+        window's), so a pinned shortcut groups with the running window AND
+        relaunches via Kivun.exe — not the flet client, which on its own opens a
+        blank window (#3b). Covers Start-menu, desktop, and the taskbar-pinned
+        copy (retroactively fixes a shortcut pinned before this build). The .lnk
+        basename is the installer's AppNameHe; only present in installed builds."""
+        appdata = os.environ.get("APPDATA", "")
+        profile = os.environ.get("USERPROFILE", "")
+        name = "כיוון.lnk"
+        for lnk in (
+            os.path.join(appdata, "Microsoft", "Windows", "Start Menu", "Programs", name),
+            os.path.join(profile, "Desktop", name),
+            os.path.join(appdata, "Microsoft", "Internet Explorer", "Quick Launch",
+                         "User Pinned", "TaskBar", name),
+        ):
+            if os.path.exists(lnk):
+                set_shortcut_app_id(lnk, APP_USER_MODEL_ID)
 
     def _build_page(self) -> None:
         self.page.title = APP_WINDOW_TITLE

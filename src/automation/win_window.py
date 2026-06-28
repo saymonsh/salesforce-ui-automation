@@ -22,6 +22,7 @@ so they can never break a run. On non-Windows the public API degrades to no-ops.
 from __future__ import annotations
 
 import ctypes
+import os
 import threading
 import time
 from ctypes import wintypes
@@ -646,6 +647,30 @@ _PKEY_AppUserModel_ID = _PROPERTYKEY(
     _guid(0x9F4C2855, 0x9F79, 0x4B39,
           (0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3)), 5)
 
+_VT_LPWSTR = 31
+
+
+def _fill_lpwstr_propvariant(pv: "_PROPVARIANT", s: str) -> bool:
+    """Populate a PROPVARIANT as VT_LPWSTR with a CoTaskMem-allocated copy of s
+    (PropVariantClear frees it). We build it by hand because
+    ``InitPropVariantFromString`` is not reliably exported from propsys.dll. The
+    union pointer lives at offset 8 (vt + 3 reserved WORDs) on 32- and 64-bit."""
+    try:
+        ole32 = ctypes.windll.ole32
+        ole32.CoTaskMemAlloc.restype = ctypes.c_void_p
+        ole32.CoTaskMemAlloc.argtypes = [ctypes.c_size_t]
+        data = (s + "\0").encode("utf-16-le")
+        p = ole32.CoTaskMemAlloc(len(data))
+        if not p:
+            return False
+        ctypes.memmove(p, data, len(data))
+        pv.vt = _VT_LPWSTR
+        ctypes.memmove(ctypes.byref(pv, 8), ctypes.byref(ctypes.c_void_p(p)),
+                       ctypes.sizeof(ctypes.c_void_p))
+        return True
+    except Exception:
+        return False
+
 
 def set_window_app_id(hwnd: int, app_id: str) -> None:
     """Tag a window with an explicit AppUserModelID via its property store, so
@@ -655,7 +680,6 @@ def set_window_app_id(hwnd: int, app_id: str) -> None:
         return
     try:
         shell32 = ctypes.windll.shell32
-        propsys = ctypes.windll.propsys
         ole32 = ctypes.windll.ole32
         store = ctypes.c_void_p()
         hr = shell32.SHGetPropertyStoreForWindow(
@@ -665,8 +689,7 @@ def set_window_app_id(hwnd: int, app_id: str) -> None:
             return
         try:
             pv = _PROPVARIANT()
-            if propsys.InitPropVariantFromString(
-                    ctypes.c_wchar_p(app_id), ctypes.byref(pv)) != 0:
+            if not _fill_lpwstr_propvariant(pv, app_id):
                 return
             try:
                 # IPropertyStore vtable: [6]=SetValue, [7]=Commit, [2]=Release.
@@ -698,3 +721,90 @@ def set_process_app_id(app_id: str) -> None:
             ctypes.c_wchar_p(app_id))
     except Exception:
         pass
+
+
+# --- AppUserModelID on a .lnk shortcut (so a pinned shortcut merges with the
+#     running window and relaunches via Kivun.exe, not the flet client) --------
+
+def _com_method(ptr, index, restype, *argtypes):
+    """Bind a COM vtable method (by index) on an interface pointer to a callable."""
+    vtbl = ctypes.cast(ptr, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+    return ctypes.WINFUNCTYPE(restype, ctypes.c_void_p, *argtypes)(vtbl[index])
+
+
+# CLSID_ShellLink {00021401-0000-0000-C000-000000000046}
+_CLSID_ShellLink = _guid(0x00021401, 0x0000, 0x0000,
+                         (0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46))
+# IID_IShellLinkW {000214F9-0000-0000-C000-000000000046}
+_IID_IShellLinkW = _guid(0x000214F9, 0x0000, 0x0000,
+                         (0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46))
+# IID_IPersistFile {0000010B-0000-0000-C000-000000000046}
+_IID_IPersistFile = _guid(0x0000010B, 0x0000, 0x0000,
+                          (0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46))
+
+
+def set_shortcut_app_id(lnk_path: str, app_id: str) -> bool:
+    """Write System.AppUserModel.ID onto a .lnk so Windows ties it to the running
+    window (same id) and relaunches it via the shortcut's real target. Returns
+    True on success. Pure-ctypes COM; fully best-effort."""
+    if not lnk_path or not app_id or not os.path.exists(lnk_path):
+        return False
+    HRESULT = ctypes.c_long
+    PGUID = ctypes.POINTER(_GUID)
+    PVOID = ctypes.POINTER(ctypes.c_void_p)
+    try:
+        ole32 = ctypes.windll.ole32
+    except Exception:
+        return False
+    co = ole32.CoInitializeEx(None, 0x2)  # COINIT_APARTMENTTHREADED
+    ok = False
+    try:
+        psl = ctypes.c_void_p()
+        if ole32.CoCreateInstance(ctypes.byref(_CLSID_ShellLink), None, 1,
+                                  ctypes.byref(_IID_IShellLinkW),
+                                  ctypes.byref(psl)) != 0 or not psl:
+            return False
+        try:
+            ppf = ctypes.c_void_p()
+            if _com_method(psl, 0, HRESULT, PGUID, PVOID)(
+                    psl, ctypes.byref(_IID_IPersistFile), ctypes.byref(ppf)) != 0:
+                return False
+            try:
+                # IPersistFile::Load (vtbl 5): keep it loaded read/write.
+                if _com_method(ppf, 5, HRESULT, ctypes.c_wchar_p, wintypes.DWORD)(
+                        ppf, lnk_path, 2) != 0:  # STGM_READWRITE
+                    return False
+                pps = ctypes.c_void_p()
+                if _com_method(psl, 0, HRESULT, PGUID, PVOID)(
+                        psl, ctypes.byref(_IID_IPropertyStore),
+                        ctypes.byref(pps)) != 0:
+                    return False
+                try:
+                    pv = _PROPVARIANT()
+                    if not _fill_lpwstr_propvariant(pv, app_id):
+                        return False
+                    try:
+                        _com_method(pps, 6, HRESULT,
+                                    ctypes.POINTER(_PROPERTYKEY),
+                                    ctypes.POINTER(_PROPVARIANT))(
+                            pps, ctypes.byref(_PKEY_AppUserModel_ID),
+                            ctypes.byref(pv))
+                        _com_method(pps, 7, HRESULT)(pps)  # Commit
+                    finally:
+                        ole32.PropVariantClear(ctypes.byref(pv))
+                    # IPersistFile::Save (vtbl 6) — write the .lnk back.
+                    if _com_method(ppf, 6, HRESULT, ctypes.c_wchar_p,
+                                   wintypes.BOOL)(ppf, lnk_path, True) == 0:
+                        ok = True
+                finally:
+                    _com_method(pps, 2, HRESULT)(pps)  # Release
+            finally:
+                _com_method(ppf, 2, HRESULT)(ppf)
+        finally:
+            _com_method(psl, 2, HRESULT)(psl)
+    except Exception:
+        ok = False
+    finally:
+        if co in (0, 1):  # S_OK / S_FALSE (we initialised it)
+            ole32.CoUninitialize()
+    return ok
