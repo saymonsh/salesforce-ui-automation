@@ -4,6 +4,7 @@ import os
 import queue
 import subprocess
 import threading
+import time
 from typing import Callable, Optional
 
 import flet as ft
@@ -11,14 +12,22 @@ import flet as ft
 from src.automation.win_window import (
     BrowserOverlay,
     find_window_by_title,
+    force_maximize,
     host_metrics,
     set_process_dpi_aware,
+    set_window_app_id,
+    set_window_icon,
 )
-from src.core.constants import APP_WINDOW_TITLE, T3_MODE_COMPARE, T3_MODE_UPSERT
+from src.core.constants import (
+    APP_USER_MODEL_ID,
+    APP_WINDOW_TITLE,
+    T3_MODE_COMPARE,
+    T3_MODE_UPSERT,
+)
 from src.core.config import config_instance as parm
 from src.core.paths import bundle_dir
 from src.core.status_messages import Status
-from src.core.utils import ltr_isolate
+from src.core.utils import CREATE_NO_WINDOW, ltr_isolate
 from src.ui.data_grid import DataGridView
 from src.ui.theme import Color, Font, Radius, Space, Term, Type, apply_theme
 
@@ -126,6 +135,30 @@ class MainView:
         self._build_page()
         self._build_controls()
         self._render()
+        self._apply_window_identity()
+
+    def _apply_window_identity(self) -> None:
+        """Once the host window (owned by the bundled flet client) appears, force
+        it maximized, set its icon to app.ico, and tag it with our
+        AppUserModelID. Fixes: first-launch opening windowed instead of
+        full-screen (#1), the generic running-window icon (#3a), and the running
+        button not grouping with the app's identity (#3b). Best-effort, off the
+        UI thread; the window can lag by a beat on a cold first launch."""
+        ico = os.path.join(bundle_dir(), "assets", "icons", "app.ico")
+        title = self.page.title
+
+        def _run():
+            for _ in range(50):  # ~5s; the flet client may be unpacking on first run
+                hwnd = find_window_by_title(title)
+                if hwnd:
+                    force_maximize(hwnd)
+                    if os.path.exists(ico):
+                        set_window_icon(hwnd, ico)
+                    set_window_app_id(hwnd, APP_USER_MODEL_ID)
+                    return
+                time.sleep(0.1)
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _build_page(self) -> None:
         self.page.title = APP_WINDOW_TITLE
@@ -168,12 +201,14 @@ class MainView:
             pid = self._overlay.verified_chrome_pid() if self._overlay else None
             if pid:
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                               capture_output=True, check=False)
+                               capture_output=True, check=False,
+                               creationflags=CREATE_NO_WINDOW)
         except Exception:
             pass
         try:
             subprocess.run(["taskkill", "/F", "/IM", "chromedriver.exe"],
-                           capture_output=True, check=False)
+                           capture_output=True, check=False,
+                           creationflags=CREATE_NO_WINDOW)
         except Exception:
             pass
 

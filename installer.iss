@@ -44,6 +44,12 @@ UninstallDisplayIcon={app}\{#AppExe}
 ; Installer output
 OutputDir=Output
 OutputBaseFilename=WelfareSFAutomation-Setup-{#AppVersion}
+; Brand the installer's own exe (the app shortcuts inherit Kivun.exe's embedded
+; icon — build.spec embeds assets/icons/app.ico). Guarded so a checkout without
+; the .ico still compiles.
+#if FileExists("assets\icons\app.ico")
+  SetupIconFile=assets\icons\app.ico
+#endif
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

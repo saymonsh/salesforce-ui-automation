@@ -20,6 +20,7 @@ import subprocess
 import tempfile
 import urllib.request
 
+from src.core.utils import CREATE_NO_WINDOW
 from src.core.version import __version__
 
 REPO = "saymonsh/salesforce-ui-automation"
@@ -129,6 +130,7 @@ def _scp(remote_src: str, local_dst: str, key: str, timeout: int) -> bool:
         r = subprocess.run(
             ["scp", "-i", key, *_SCP_OPTS, remote_src, local_dst],
             capture_output=True, text=True, timeout=timeout,
+            creationflags=CREATE_NO_WINDOW,
         )
         return r.returncode == 0 and os.path.exists(local_dst)
     except Exception:

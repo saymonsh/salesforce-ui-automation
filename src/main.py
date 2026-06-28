@@ -100,6 +100,15 @@ def _acquire_single_instance_lock() -> bool:
 
 
 def main() -> None:
+    # Tag this process with our AppUserModelID before any window is created, so
+    # the taskbar groups the app under one identity (the host window is also
+    # tagged in main_window once it appears — it's owned by the flet client).
+    try:
+        from src.automation.win_window import set_process_app_id
+        from src.core.constants import APP_USER_MODEL_ID
+        set_process_app_id(APP_USER_MODEL_ID)
+    except Exception:
+        pass
     if not _acquire_single_instance_lock():
         import ctypes
 

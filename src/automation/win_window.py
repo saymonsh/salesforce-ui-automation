@@ -552,3 +552,149 @@ class BrowserOverlay:
             except Exception:
                 pass
             time.sleep(0.01)
+
+
+# ---------------------------------------------------------------------------
+# Window branding / identity: maximize (first-launch fix), taskbar icon, and
+# AppUserModelID (so the running window groups with — and can merge into — a
+# pinned taskbar button). All Windows-only and strictly best-effort: the host
+# window is owned by the bundled Flutter client (flet.exe), so these tag THAT
+# window after it appears. Every failure is swallowed.
+# ---------------------------------------------------------------------------
+
+SW_MAXIMIZE = 3
+WM_SETICON = 0x0080
+ICON_SMALL = 0
+ICON_BIG = 1
+IMAGE_ICON = 1
+LR_LOADFROMFILE = 0x00000010
+
+if _user32 is not None:
+    try:
+        _user32.LoadImageW.restype = wintypes.HANDLE
+        _user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR,
+                                       wintypes.UINT, ctypes.c_int, ctypes.c_int,
+                                       wintypes.UINT]
+        _user32.SendMessageW.restype = ctypes.c_ssize_t
+        _user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT,
+                                         wintypes.WPARAM, wintypes.LPARAM]
+    except Exception:  # pragma: no cover
+        pass
+
+
+def force_maximize(hwnd: int) -> None:
+    """Maximize a window. Belt-and-suspenders for the first-launch case where
+    Flet's own ``window.maximized`` hasn't taken effect yet (cold start, while
+    the bundled client is still unpacking) so the app opens windowed instead of
+    full-screen."""
+    if _user32 is None or not hwnd:
+        return
+    try:
+        if not _user32.IsZoomed(hwnd):
+            _user32.ShowWindow(hwnd, SW_MAXIMIZE)
+    except Exception:
+        pass
+
+
+def set_window_icon(hwnd: int, ico_path: str) -> None:
+    """Set a window's small+big icon from a .ico file (WM_SETICON), so the
+    running window's taskbar/Alt-Tab icon matches the shortcut's app.ico instead
+    of the generic Flutter-client icon."""
+    if _user32 is None or not hwnd or not ico_path:
+        return
+    try:
+        for size, which in ((16, ICON_SMALL), (32, ICON_BIG)):
+            h = _user32.LoadImageW(None, ico_path, IMAGE_ICON, size, size,
+                                   LR_LOADFROMFILE)
+            if h:
+                _user32.SendMessageW(hwnd, WM_SETICON, which, h)
+    except Exception:
+        pass
+
+
+# --- AppUserModelID on a window via its property store (taskbar grouping) ----
+
+class _GUID(ctypes.Structure):
+    _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
+
+
+class _PROPERTYKEY(ctypes.Structure):
+    _fields_ = [("fmtid", _GUID), ("pid", wintypes.DWORD)]
+
+
+class _PROPVARIANT(ctypes.Structure):
+    # vt + 3 reserved words + a union; 16 union bytes is ample for x64 VT_LPWSTR.
+    _fields_ = [("vt", wintypes.USHORT), ("r1", wintypes.USHORT),
+                ("r2", wintypes.USHORT), ("r3", wintypes.USHORT),
+                ("data", ctypes.c_byte * 16)]
+
+
+def _guid(d1, d2, d3, d4):
+    g = _GUID()
+    g.Data1, g.Data2, g.Data3 = d1, d2, d3
+    for i, b in enumerate(d4):
+        g.Data4[i] = b
+    return g
+
+
+# IID_IPropertyStore {886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}
+_IID_IPropertyStore = _guid(0x886D8EEB, 0x8CF2, 0x4446,
+                            (0x8D, 0x02, 0xCD, 0xBA, 0x1D, 0xBD, 0xCF, 0x99))
+# PKEY_AppUserModel_ID = fmtid {9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}, pid 5
+_PKEY_AppUserModel_ID = _PROPERTYKEY(
+    _guid(0x9F4C2855, 0x9F79, 0x4B39,
+          (0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3)), 5)
+
+
+def set_window_app_id(hwnd: int, app_id: str) -> None:
+    """Tag a window with an explicit AppUserModelID via its property store, so
+    Windows groups its taskbar button under that id (and a pinned shortcut
+    carrying the same id merges with it). Pure-ctypes COM, fully best-effort."""
+    if not hwnd or not app_id:
+        return
+    try:
+        shell32 = ctypes.windll.shell32
+        propsys = ctypes.windll.propsys
+        ole32 = ctypes.windll.ole32
+        store = ctypes.c_void_p()
+        hr = shell32.SHGetPropertyStoreForWindow(
+            wintypes.HWND(hwnd), ctypes.byref(_IID_IPropertyStore),
+            ctypes.byref(store))
+        if hr != 0 or not store:
+            return
+        try:
+            pv = _PROPVARIANT()
+            if propsys.InitPropVariantFromString(
+                    ctypes.c_wchar_p(app_id), ctypes.byref(pv)) != 0:
+                return
+            try:
+                # IPropertyStore vtable: [6]=SetValue, [7]=Commit, [2]=Release.
+                vtbl = ctypes.cast(store,
+                                   ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+                proto_set = ctypes.WINFUNCTYPE(
+                    ctypes.c_long, ctypes.c_void_p,
+                    ctypes.POINTER(_PROPERTYKEY), ctypes.POINTER(_PROPVARIANT))
+                proto_commit = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
+                proto_set(vtbl[6])(store, ctypes.byref(_PKEY_AppUserModel_ID),
+                                   ctypes.byref(pv))
+                proto_commit(vtbl[7])(store)
+            finally:
+                ole32.PropVariantClear(ctypes.byref(pv))
+        finally:
+            ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(
+                ctypes.cast(store,
+                            ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0][2])(store)
+    except Exception:
+        pass
+
+
+def set_process_app_id(app_id: str) -> None:
+    """Set this process's explicit AppUserModelID (called early at startup).
+    Harmless if the visible window is the flet client's — set_window_app_id tags
+    that one — but correct for any window this process owns directly."""
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            ctypes.c_wchar_p(app_id))
+    except Exception:
+        pass
