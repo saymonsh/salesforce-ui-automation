@@ -70,8 +70,11 @@ Source: "dist\Kivun\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs cr
 [Icons]
 ; Per-user Start menu + (optional) desktop shortcuts — {userprograms}/{userdesktop},
 ; never the all-users {commonprograms} (which needs admin).
-Name: "{userprograms}\{#AppNameHe}"; Filename: "{app}\{#AppExe}"
-Name: "{userdesktop}\{#AppNameHe}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+; IconFilename points explicitly at the bundled app.ico (under _internal\, where
+; build.spec stages assets) so the shortcut shows the brand icon regardless of
+; whether the EXE's embedded icon got cached by Explorer.
+Name: "{userprograms}\{#AppNameHe}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\_internal\assets\icons\app.ico"
+Name: "{userdesktop}\{#AppNameHe}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\_internal\assets\icons\app.ico"; Tasks: desktopicon
 
 [Run]
 Description: "{cm:LaunchProgram,{#AppNameHe}}"; Filename: "{app}\{#AppExe}"; Flags: nowait postinstall skipifsilent
