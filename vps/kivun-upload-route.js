@@ -45,9 +45,13 @@ app.post('/api/kivun/upload', (req, res) => {
           .on('error', reject);
       });
       // atomic publish so a concurrent scp never sees a half-written exe
-      await fs.move(tmp, path.join(KIVUN_UPDATES_DIR, KIVUN_EXE_NAME), { overwrite: true });
+      const exePath = path.join(KIVUN_UPDATES_DIR, KIVUN_EXE_NAME);
+      await fs.move(tmp, exePath, { overwrite: true });
+      // size lets the app show a real download % over scp (it polls the partly
+      // written file against this total — scp emits no parseable meter when piped).
+      const size = (await fs.stat(exePath)).size;
       await fs.writeJson(path.join(KIVUN_UPDATES_DIR, 'latest.json'),
-        { version, file: KIVUN_EXE_NAME, sha256: sha });
+        { version, file: KIVUN_EXE_NAME, sha256: sha, size });
       console.log(`kivun upload ok: ${version} ${sha}`);
       res.status(200).json({ message: 'ok', version, sha256: sha });
     } catch (error) {

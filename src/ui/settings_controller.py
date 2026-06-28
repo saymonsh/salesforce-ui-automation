@@ -9,7 +9,7 @@ class SettingsController:
         self.page = page
         self.main_view = main_view
 
-    def open_settings(self):
+    def open_settings(self, update_section=None):
         settings_view, _fields = build_settings_view(
             initial_values={
                 "USER_NAME": parm.USER_NAME or "",
@@ -25,6 +25,7 @@ class SettingsController:
                 "SSH_KEY_PATH": parm.SSH_KEY_PATH or "",
             },
             on_save=self._save_settings,
+            update_section=update_section,
         )
         self.main_view.show_settings_view(settings_view)
 

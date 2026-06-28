@@ -4,6 +4,7 @@ from src.core.config import config_instance as parm
 from src.core.constants import T3_MODE_COMPARE, T3_MODE_UPSERT
 from src.core.paths import is_frozen
 from src.core.status_messages import Status
+from src.core.version import __version__
 from src.core.utils import strip_isolates
 from src.ui.settings_controller import SettingsController
 from src.ui.worker_manager import WorkerManager
@@ -33,80 +34,170 @@ class Controller:
         # survives the worker's end and is closed cleanly on "done" / next run.
         self._handoff_dm = None
 
-        # Auto-update on launch — only on frozen builds (a source checkout has no
-        # installer to update to) AND only on machines the operator designated
-        # developer/gov (persisted ENABLED in config.ini). Keyed off the *saved*
-        # flag, not the per-session DEV_MODE (which is always False at launch).
-        if is_frozen() and parm.DEV_MODE_PERSISTED:
+        # Update state surfaced in the settings panel (no launch popup anymore).
+        # A frozen build checks in the background on launch; a source checkout has
+        # no installer to update to, so it just reports "source". Visible to every
+        # install — the settings panel distinguishes up-to-date from "couldn't
+        # check" (and then hints at SSH).
+        self.update_status = {"state": "checking"} if is_frozen() else {"state": "source"}
+        self._update_controls = None  # the settings update-section refs, while open
+        if is_frozen():
             self._start_update_check()
 
     def _start_update_check(self):
         """Check for a newer build on a daemon thread (a slow/blocked network
-        must never delay startup) and offer it back on the UI loop. Channel:
-        dev-mode + SSH configured -> VPS mirror over scp (the gov machine can't
-        reach GitHub); otherwise GitHub Releases."""
+        must never delay startup) and refresh the settings panel if it's open.
+        The result is stashed on ``self.update_status`` so opening settings later
+        renders it without re-checking."""
         def _run():
-            info = self._fetch_update_info()
-            if info and self.page:
-                self.page.run_task(self._safe_offer_update, info)
+            self.update_status = self._fetch_update_info()
+            if self.page:
+                self.page.run_task(self._safe_render_update_section)
         threading.Thread(target=_run, daemon=True).start()
 
-    def _fetch_update_info(self):
-        """Return a normalized update dict (with a ``channel`` key) or None.
-
-        Channel = SSH/VPS mirror when the SSH mirror is *configured*
+    def _fetch_update_info(self) -> dict:
+        """Return the channel-appropriate status dict (state available/current/
+        error). Channel = SSH/VPS mirror when the SSH mirror is *configured*
         (SSH_REMOTE + SSH_KEY_PATH in config.ini), else GitHub. We key off the
         config fields, not the session DEV_MODE flag: DEV_MODE resets to False
         on every launch (config.py), so it would always pick GitHub at startup —
         but the gov machine that needs the VPS channel is exactly the one with
-        the SSH mirror persisted. (A dev box with SSH configured also pulls from
-        the mirror, which is harmless — it's the same build.)"""
+        the SSH mirror persisted."""
         if parm.SSH_REMOTE and parm.SSH_KEY_PATH:
             from src.core.update_checker import check_for_update_ssh
-            info = check_for_update_ssh(parm.SSH_REMOTE, parm.SSH_KEY_PATH)
-            if info:
-                info["channel"] = "ssh"
-            return info
+            return check_for_update_ssh(parm.SSH_REMOTE, parm.SSH_KEY_PATH)
         from src.core.update_checker import check_for_update
-        info = check_for_update()
-        if info:
-            info["channel"] = "github"
-        return info
+        return check_for_update()
 
-    async def _safe_offer_update(self, info):
-        version = info["version"]
-        # SSH always carries an installer; GitHub may lack a .exe asset.
-        if info["channel"] == "ssh" or info.get("url"):
-            self.main_view.confirm(
-                f"גרסה חדשה זמינה ({version})",
-                "מומלץ לעדכן לגרסה האחרונה. ההורדה תתחיל וההתקנה תיפתח; "
-                "החלון הנוכחי ייסגר במהלך העדכון.",
-                "הורד והתקן",
-                lambda: self._download_update(info),
-                level="info",
-            )
-        elif info.get("page"):
-            # GitHub release with no .exe asset — point the operator at it.
+    # ----------------------------------------------------------- settings panel
+    def build_update_section(self):
+        """Build the 'אודות ועדכונים' control for the settings dialog (fresh refs
+        each open) and render the current status into it. Returns the control."""
+        import flet as ft
+        from src.ui.theme import Color, Space, Type
+
+        self._upd_icon = ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=Color.TEXT_SECONDARY, size=18)
+        self._upd_ring = ft.ProgressRing(width=16, height=16, stroke_width=2, color=Color.BRAND, visible=False)
+        self._upd_text = ft.Text("", color=Color.TEXT_SECONDARY, size=Type.BODY[0], expand=True)
+        self._upd_button = ft.TextButton("בדוק עכשיו", on_click=lambda _: self._on_check_now())
+        installed = ft.Text(f"גרסה מותקנת: {__version__}", color=Color.TEXT_SECONDARY, size=Type.CAPTION[0])
+        status_row = ft.Row(
+            spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[self._upd_icon, self._upd_ring, self._upd_text, self._upd_button],
+        )
+        self._update_controls = (self._upd_icon, self._upd_ring, self._upd_text, self._upd_button)
+        self._render_update_section()
+        return ft.Column(spacing=Space.XS, controls=[installed, status_row])
+
+    def _render_update_section(self):
+        """Paint the update controls from ``self.update_status``. Best-effort —
+        mutating an unmounted control (settings closed) just raises and is
+        swallowed; the next open rebuilds from the same stashed status."""
+        if not self._update_controls:
+            return
+        import flet as ft
+        from src.ui.theme import Color
+        st = self.update_status or {"state": "error", "reason": "network"}
+        state = st.get("state")
+        btn = self._upd_button
+        self._upd_ring.visible = state == "checking"
+
+        if state == "available":
+            self._upd_icon.name = ft.Icons.SYSTEM_UPDATE_ALT_ROUNDED
+            self._upd_icon.color = Color.BRAND
+            self._upd_text.value = f"גרסה חדשה זמינה ({st.get('version', '')})"
+            self._upd_text.color = Color.TEXT_PRIMARY
+            btn.text, btn.visible = "עדכן עכשיו", True
+            btn.on_click = lambda _: self.apply_update()
+        elif state == "current":
+            self._upd_icon.name = ft.Icons.CHECK_CIRCLE_ROUNDED
+            self._upd_icon.color = Color.SUCCESS
+            self._upd_text.value = "מותקנת הגרסה האחרונה"
+            self._upd_text.color = Color.TEXT_SECONDARY
+            btn.text, btn.visible = "בדוק עכשיו", True
+            btn.on_click = lambda _: self._on_check_now()
+        elif state == "checking":
+            self._upd_icon.name = ft.Icons.HOURGLASS_EMPTY_ROUNDED
+            self._upd_icon.color = Color.TEXT_SECONDARY
+            self._upd_text.value = "בודק עדכונים…"
+            self._upd_text.color = Color.TEXT_SECONDARY
+            btn.visible = False
+        elif state == "source":
+            self._upd_icon.name = ft.Icons.INFO_OUTLINE_ROUNDED
+            self._upd_icon.color = Color.TEXT_SECONDARY
+            self._upd_text.value = "הרצה ממקור — ללא עדכון אוטומטי"
+            self._upd_text.color = Color.TEXT_SECONDARY
+            btn.visible = False
+        else:  # error — distinguish a failed SSH pull from "no channel / blocked"
+            self._upd_icon.name = ft.Icons.WARNING_AMBER_ROUNDED
+            self._upd_icon.color = Color.ACTION_REQUIRED
+            if st.get("reason") == "ssh":
+                self._upd_text.value = "בדיקת העדכון דרך SSH נכשלה — בדוק כתובת/מפתח וחיבור."
+            else:
+                self._upd_text.value = "לא ניתן לבדוק עדכונים. אם המחשב מסונן — הפעל 'שיקוף SSH' בהגדרות מתקדמות."
+            self._upd_text.color = Color.TEXT_SECONDARY
+            btn.text, btn.visible = "בדוק עכשיו", True
+            btn.on_click = lambda _: self._on_check_now()
+
+        try:
+            for c in self._update_controls:
+                c.update()
+        except Exception:
+            pass  # not mounted (settings closed) — values are set, render on next open
+
+    async def _safe_render_update_section(self):
+        self._render_update_section()
+
+    def _on_check_now(self):
+        """Manual re-check from the settings panel."""
+        self.update_status = {"state": "checking"}
+        self._render_update_section()
+
+        def _run():
+            self.update_status = self._fetch_update_info()
+            if self.page:
+                self.page.run_task(self._safe_render_update_section)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def apply_update(self):
+        """Download + install the available update with a live 'updating' modal,
+        then close the app so the per-user installer can replace the locked files.
+
+        Closing settings and showing the modal happen in the same UI tick, so a
+        dialog is always on screen — no flash of bare background (the old bug)."""
+        info = self.update_status
+        if not info or info.get("state") != "available":
+            return
+        # GitHub release without a .exe asset — nothing to silent-install; point
+        # the operator at the release page instead.
+        if info.get("channel") == "github" and not info.get("url"):
             self.main_view.show_alert(
-                f"גרסה חדשה זמינה ({version})",
-                f"ניתן להוריד את הגרסה האחרונה מ-GitHub:\n{info['page']}",
+                "גרסה חדשה זמינה",
+                f"ניתן להוריד את הגרסה האחרונה מ-GitHub:\n{info.get('page', '')}",
                 "info",
             )
+            return
 
-    def _download_update(self, info):
-        """Download the installer on a daemon thread (so the UI loop never
-        blocks), launch it, then close the app so the per-user installer can
-        replace the otherwise-locked program files. Dispatches on channel."""
-        self.main_view.set_status("מוריד עדכון…")
+        self.main_view.switch_to_main()       # close settings cleanly (restores panel)…
+        self.main_view.show_updating_modal()  # …then cover it with the modal — no gap
+
+        def _progress(pct):
+            if self.page:
+                self.page.run_task(self._safe_set_updating, "מוריד עדכון…", pct)
 
         def _run():
             try:
                 if info["channel"] == "ssh":
+                    if self.page:  # scp % needs the manifest size; show indeterminate meanwhile
+                        self.page.run_task(self._safe_set_updating, "מוריד ומאמת עדכון…", None)
                     from src.core.update_checker import download_and_launch_ssh
-                    download_and_launch_ssh(info["remote_exe"], parm.SSH_KEY_PATH, info["sha256"])
+                    download_and_launch_ssh(info["remote_exe"], parm.SSH_KEY_PATH,
+                                            info["sha256"], info.get("size"), on_progress=_progress)
                 else:
                     from src.core.update_checker import download_and_launch
-                    download_and_launch(info["url"])
+                    download_and_launch(info["url"], on_progress=_progress)
+                if self.page:
+                    self.page.run_task(self._safe_set_updating, "מפעיל התקנה…", 100)
             except Exception as e:
                 if self.page:
                     self.page.run_task(self._safe_update_failed, str(e))
@@ -115,7 +206,11 @@ class Controller:
                 self.page.run_task(self._safe_quit_after_update)
         threading.Thread(target=_run, daemon=True).start()
 
+    async def _safe_set_updating(self, text, percent):
+        self.main_view.set_updating(text, percent)
+
     async def _safe_update_failed(self, err):
+        self.main_view.close_updating()
         self.main_view.show_alert("העדכון נכשל", f"הורדת העדכון נכשלה:\n{err}", "error")
 
     async def _safe_quit_after_update(self):
@@ -139,7 +234,7 @@ class Controller:
             dm.close_driver()
 
     def on_setting_click(self, _event=None):
-        self.settings_controller.open_settings()
+        self.settings_controller.open_settings(update_section=self.build_update_section())
 
     def on_stop_click(self, _event=None):
         self.worker_manager.stop()
