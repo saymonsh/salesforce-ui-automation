@@ -33,9 +33,11 @@ class Controller:
         # survives the worker's end and is closed cleanly on "done" / next run.
         self._handoff_dm = None
 
-        # Quietly check GitHub for a newer release on launch (frozen builds only —
-        # a source checkout has no installer to update to).
-        if is_frozen():
+        # Auto-update on launch — only on frozen builds (a source checkout has no
+        # installer to update to) AND only on machines the operator designated
+        # developer/gov (persisted ENABLED in config.ini). Keyed off the *saved*
+        # flag, not the per-session DEV_MODE (which is always False at launch).
+        if is_frozen() and parm.DEV_MODE_PERSISTED:
             self._start_update_check()
 
     def _start_update_check(self):
