@@ -33,6 +33,11 @@ AppPublisher={#AppPublisher}
 PrivilegesRequired=lowest
 DefaultDirName={localappdata}\WelfareSFAutomation
 DisableProgramGroupPage=yes
+; In-app updater closes itself then runs this installer; AppMutex makes Setup
+; WAIT for the app to fully exit (release its single-instance mutex from
+; main.py) before touching files — closing the self-update race. Works because
+; the per-user install shares the app's session, so the local mutex is visible.
+AppMutex=SalesforceUIAutomation.SingleInstance
 ; Registry uninstall info lands in HKCU (per-user), never HKLM.
 UninstallDisplayName={#AppNameHe}
 UninstallDisplayIcon={app}\{#AppExe}

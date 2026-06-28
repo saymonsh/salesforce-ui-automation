@@ -67,8 +67,10 @@ Pushing a `v*` tag triggers `.github/workflows/build-release.yml`, which:
 2. Compiles the Inno Setup installer.
 3. Publishes `WelfareSFAutomation-Setup-<ver>.exe` as a **GitHub Release**.
 
-The binary is not committed to git history — Releases only. For offline/gov
-builds where the Flet client must be pre-cached, build locally (see above).
+The binary is not committed to git history — Releases only. CI fetches the Flet
+desktop client (cached per version) before building, so the **CI-built installer
+is self-contained and works offline** on the gov target — no need to build
+locally for that. Local builds remain available for ad-hoc testing.
 
 ## In-app updates
 
@@ -77,6 +79,11 @@ latest release. If its tag is newer than `src/core/version.py`, the operator get
 a dialog offering a one-click **download + install** of the new installer; the
 app then closes so the per-user installer can replace its files. The check is
 stdlib-only (`urllib`) and offline-safe — a blocked network just skips it.
+
+The close-then-install race is closed by `AppMutex` in `installer.iss`: it names
+the app's single-instance mutex (from `main.py`), so Inno waits for the app to
+fully exit before touching files. This works because the per-user install shares
+the app's Windows session, making the local mutex visible to Setup.
 
 This supersedes the ADR-001 "updates: manual" line: bumping the version, tagging,
 and pushing now both publishes the release (CI) *and* makes existing installs

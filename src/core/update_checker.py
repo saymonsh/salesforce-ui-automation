@@ -73,13 +73,10 @@ def download_and_launch(url: str) -> str:
     """Download the installer to %TEMP% and launch it, returning its path.
 
     The caller is expected to exit the app right after so the per-user installer
-    can overwrite the (otherwise locked) program files.
-
-    ponytail: there's a small race — the installer starts while this process is
-    still closing. The operator-driven Inno wizard takes seconds to reach the
-    copy step, by which point the app is gone, so it holds in practice. The
-    robust upgrade path is an AppMutex + CloseApplications in installer.iss so
-    Inno itself waits for / closes the running app.
+    can overwrite the (otherwise locked) program files. The close-then-install
+    race is handled installer-side: installer.iss sets ``AppMutex`` to the app's
+    single-instance mutex, so Inno waits for the app to fully exit before it
+    touches any files.
     """
     dest = os.path.join(tempfile.gettempdir(), os.path.basename(url) or "Kivun-Setup.exe")
     urllib.request.urlretrieve(url, dest)

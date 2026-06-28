@@ -38,10 +38,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-build.txt
 
+      - name: Cache Flet desktop client
+        # The Flutter client (~tens of MB) is fetched from GitHub once per Flet
+        # version. Cache it so only the first build per version downloads it.
+        # Keyed on the deps files since they pin the Flet version in practice.
+        uses: actions/cache@v4
+        with:
+          path: ~/.flet/client
+          key: flet-client-${{ runner.os }}-${{ hashFiles('requirements*.txt') }}
+
+      - name: Fetch Flet desktop client
+        # Populate ~/.flet/client (cache miss only — egress is fine on the runner)
+        # so build.spec can zip it into the bundle. THIS is what makes the
+        # CI-built installer self-contained / offline-capable for the gov target.
+        run: python -c "import flet_desktop; flet_desktop.ensure_client_cached()"
+
       - name: Build EXE (PyInstaller)
-        # Note: the Flet desktop client may not be in the runner's cache, so the
-        # built app will self-fetch it from GitHub on first launch. For offline
-        # gov installs, build locally (docs/packaging.md) where the cache exists.
         run: pyinstaller build.spec --noconfirm
 
       - name: Install Inno Setup
