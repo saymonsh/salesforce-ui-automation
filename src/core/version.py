@@ -6,4 +6,4 @@ import it.  The git tag (``v0.9.5``) is the *release* marker; this file is the
 *code* marker — bump it, commit, tag, push.
 """
 
-__version__ = "0.9.6"
+__version__ = "0.9.7"
