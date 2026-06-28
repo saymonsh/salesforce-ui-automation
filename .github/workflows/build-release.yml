@@ -1,7 +1,12 @@
-# Build the Windows installer and publish it as a GitHub Release.
+# Build the Windows installer (and, on a version tag, publish + mirror it).
 #
-# Triggered by pushing a version tag (v1.2.3). Also runs on PRs that touch
-# build/packaging files — build-only, no release.
+# Runs deliberately — NOT on every push (that burned CI minutes). Triggers:
+#   - PR merged into main  -> build-only smoke test (is main still releasable?)
+#   - push of a v* tag     -> build + GitHub Release + push to the VPS mirror
+#   - manual (Run workflow)-> build on demand
+# A plain/direct push to main does NOT trigger; a push to a PR branch does NOT
+# trigger (only the merge does). Release/mirror steps are gated on the tag ref,
+# so a merge build can never publish.
 #
 # The runner needs: Python, Inno Setup, and GitHub egress (for the Flet desktop
 # client fetch). All are available on the stock windows-latest image.
@@ -9,16 +14,12 @@
 name: Build & Release
 
 on:
+  pull_request:
+    types: [closed]        # gated below to merged-only
   push:
     tags:
       - "v*"
-  pull_request:
-    paths:
-      - "build.spec"
-      - "installer.iss"
-      - "requirements*.txt"
-      - "src/core/version.py"
-      - ".github/workflows/build-release.yml"
+  workflow_dispatch:
 
 permissions:
   contents: write          # needed to create a GitHub Release
@@ -26,6 +27,10 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    # Skip PRs that were closed without merging; tag/manual runs always proceed.
+    if: >
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.merged == true
 
     steps:
       - uses: actions/checkout@v4
