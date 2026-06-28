@@ -27,9 +27,14 @@ datas = []
 binaries = []
 hiddenimports = collect_submodules("src")
 
-# Flet ships a bundled Flutter desktop client (flet_desktop) that MUST travel
-# with the app — collect both packages' data/binaries/hidden imports.
-for pkg in ("flet", "flet_desktop"):
+# Selenium 4.x lazily imports its drivers via __getattr__ in
+# selenium/webdriver/__init__.py, so PyInstaller's static analysis never sees
+# selenium.webdriver.chrome.webdriver et al. and leaves them out of the bundle
+# (frozen build then dies with ModuleNotFoundError at create_driver). collect_all
+# pulls every submodule AND selenium-manager.exe (the bundled driver resolver,
+# shipped as package data). Flet ships a bundled Flutter desktop client
+# (flet_desktop) that MUST travel with the app — collect both the same way.
+for pkg in ("selenium", "flet", "flet_desktop"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
