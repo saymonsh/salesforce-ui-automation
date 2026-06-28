@@ -17,11 +17,12 @@ import os
 
 import flet as ft
 
-# assets/ lives at the project root (two levels above src/ui/).
-_ASSETS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "assets",
-)
+from src.core.paths import bundle_dir
+
+# assets/ lives next to the app — project root in a source run, the bundle's
+# _internal dir when frozen (ADR-001). bundle_dir() resolves both; __file__-walking
+# breaks in a frozen build and Flet then serves nothing (no fonts/bg).
+_ASSETS_DIR = os.path.join(bundle_dir(), "assets")
 
 
 # ---------------------------------------------------------------------------

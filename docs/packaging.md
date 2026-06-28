@@ -19,9 +19,13 @@ Turns the source app into a double-click installer that needs **no Python** and
 ## Build
 
 ```powershell
-pyinstaller build.spec --noconfirm     # -> dist\Kivun\  (EXE + runtime)
+pyinstaller build.spec --noconfirm     # -> dist\Kivun\ + build\version.iss
 iscc installer.iss                     # -> Output\WelfareSFAutomation-Setup-<ver>.exe
 ```
+
+`build.spec` reads the version from `src/core/version.py` and writes
+`build\version.iss` so Inno picks it up automatically — bump the version in one
+place, both outputs reflect it.
 
 ## What the installer does (per-user, no UAC)
 

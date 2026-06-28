@@ -16,6 +16,7 @@ from src.automation.win_window import (
 )
 from src.core.constants import APP_WINDOW_TITLE, T3_MODE_COMPARE, T3_MODE_UPSERT
 from src.core.config import config_instance as parm
+from src.core.paths import bundle_dir
 from src.core.status_messages import Status
 from src.core.utils import ltr_isolate
 from src.ui.data_grid import DataGridView
@@ -31,8 +32,7 @@ _LEVEL_COLORS = {
     "SUCCESS": Term.SUCCESS,
 }
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_BG_PATH = os.path.join(_ROOT, "assets", "icons", "bg.png")
+_BG_PATH = os.path.join(bundle_dir(), "assets", "icons", "bg.png")
 
 _BG_OPACITY = 0.80
 _GLASS_PANEL = ft.Colors.with_opacity(0.55, "#ffffff")

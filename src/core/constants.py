@@ -1,8 +1,10 @@
 import sys
 
+from src.core.version import __version__
+
 # The app's OS window title. Shared so the automation layer can locate the host
 # window (to embed Chrome as an owned overlay, issue #19) without importing the UI.
-APP_WINDOW_TITLE = "כיוון — Salesforce Automation"
+APP_WINDOW_TITLE = f"כיוון — Salesforce Automation  v{__version__}"
 
 # Dry-run / demo mode: launched as `python -m src.main --dry_run`. Drives the full
 # UI lifecycle (progress, status, embedded panel) with NO Selenium, chromedriver,

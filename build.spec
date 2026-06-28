@@ -12,6 +12,17 @@
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
+# Read the canonical version from src/core/version.py so the EXE metadata and
+# Inno Setup installer stay in sync without manual edits.
+import re as _re
+with open("src/core/version.py") as _vf:
+    _APP_VERSION = _re.search(r'__version__\s*=\s*"([^"]+)"', _vf.read()).group(1)
+
+# Emit build/version.iss so `iscc installer.iss` picks up the same version.
+os.makedirs("build", exist_ok=True)
+with open(os.path.join("build", "version.iss"), "w") as _vi:
+    _vi.write(f'#define AppVersion "{_APP_VERSION}"\n')
+
 datas = []
 binaries = []
 hiddenimports = collect_submodules("src")
@@ -95,6 +106,7 @@ exe = EXE(
     console=False,           # windowed app — no console window
     disable_windowed_traceback=False,
     icon=icon,
+    version_info=None,       # TODO: populate from _APP_VERSION via a .rc or pyi-set_version
 )
 
 coll = COLLECT(
