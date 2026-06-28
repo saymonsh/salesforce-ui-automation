@@ -74,3 +74,29 @@ jobs:
         with:
           files: Output/*.exe
           generate_release_notes: true
+
+      - name: Push installer to VPS mirror
+        # The gov machine can't reach GitHub (HTTPS out filtered), so it pulls
+        # updates from the VPS over SSH. CI (unfiltered) pushes each tagged build
+        # to the VPS upload endpoint over HTTPS. Skips silently if the secrets
+        # aren't set (forks / first-time setup). See docs/packaging.md + vps/.
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          KIVUN_UPLOAD_URL: ${{ secrets.KIVUN_UPLOAD_URL }}
+          KIVUN_UPLOAD_TOKEN: ${{ secrets.KIVUN_UPLOAD_TOKEN }}
+        run: |
+          if (-not $env:KIVUN_UPLOAD_URL -or -not $env:KIVUN_UPLOAD_TOKEN) {
+            Write-Host "VPS mirror secrets not set — skipping push."
+            exit 0
+          }
+          $exe = (Get-ChildItem Output/*.exe | Select-Object -First 1).FullName
+          $ver = (Select-String -Path src/core/version.py -Pattern '__version__\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          Write-Host "Pushing $exe (v$ver) to VPS mirror…"
+          # Raw body upload (not multipart) so the VPS endpoint stays stdlib-only.
+          curl.exe --fail --silent --show-error `
+            -H "Authorization: Bearer $env:KIVUN_UPLOAD_TOKEN" `
+            -H "X-Kivun-Version: $ver" `
+            -H "Content-Type: application/octet-stream" `
+            --data-binary "@$exe" `
+            $env:KIVUN_UPLOAD_URL

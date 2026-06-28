@@ -1,0 +1,19 @@
+# systemd unit for the Kivun update-mirror upload endpoint.
+# Install: copy to /etc/systemd/system/, set the token, then:
+#   systemctl daemon-reload && systemctl enable --now kivun-update
+[Unit]
+Description=Kivun update-mirror upload endpoint
+After=network.target
+
+[Service]
+# A dedicated low-priv user that owns /srv/kivun-updates. NOT root.
+User=kivun
+Group=kivun
+Environment=UPDATE_DIR=/srv/kivun-updates
+# Put the real token here (or use EnvironmentFile=/etc/kivun-update.env).
+Environment=KIVUN_UPLOAD_TOKEN=CHANGE_ME
+ExecStart=/usr/bin/python3 /opt/kivun/kivun_update_server.py 127.0.0.1 8099
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
