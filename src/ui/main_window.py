@@ -1171,6 +1171,9 @@ class MainView:
             self._safe_update()
 
     def set_progress(self, value: float, current: int | None = None, total: int | None = None) -> None:
+        if getattr(self, "_stopping", False):
+            return  # ring/bar show the indeterminate 'stopping' sweep — a late
+            # per-row emit must not clobber it back to a determinate %
         clamped = max(0.0, min(1.0, value))
         self.progress_ring.value = clamped
         self.linear.value = clamped
@@ -1184,6 +1187,7 @@ class MainView:
 
     def set_running(self, is_running: bool) -> None:
         self._running = is_running
+        self._stopping = False  # any run start/finish leaves the stopping window
         # Reveal/hide the embedded live-browser panel beside the console (#19).
         self._apply_run_layout(is_running)
         self.action_circle.disabled = False  # re-enable after a stop/finish cycle
@@ -1227,6 +1231,14 @@ class MainView:
             self.status_dot.bgcolor = Color.TEXT_TERTIARY
             for seg in self._type_segments.values():
                 seg.opacity = 1.0
+            # Coming out of a stop-in-progress (disable_stop left the ring
+            # indeterminate): restore the frozen % so the final stopped state
+            # shows where the run halted, not an endless sweep. Other finish
+            # paths (success/error/warning) overwrite the ring themselves.
+            if self.progress_ring.value is None:
+                fp = getattr(self, "_frozen_progress", 0.0)
+                self.progress_ring.value = self.linear.value = fp
+                self.hero_value.value, self.hero_value.color = f"{int(fp * 100)}%", Color.TEXT_PRIMARY
         # Lock the data-entry table and settings while a run is in flight — editing
         # the input mid-run would desync what's being processed from what's shown.
         # Both are reachable only via these two buttons (the dialogs themselves are
@@ -1249,7 +1261,17 @@ class MainView:
         self._t3_mode_holder.opacity = 0.55 if locked else 1.0
 
     def disable_stop(self) -> None:
+        # STOP was clicked — the stop is cooperative and can take up to a few
+        # seconds (next poll point) to actually unwind. Make that wait read as
+        # *active* instead of frozen: stash the determinate progress, then flip
+        # the ring + bar to indeterminate (animated sweep) and label the hero
+        # "עוצר…". set_running(False) restores the frozen % on finish, so the
+        # final stopped state is unchanged — only this transient window differs.
+        self._frozen_progress = self.progress_ring.value or 0.0
+        self._stopping = True
         self.action_circle.disabled = True
+        self.progress_ring.value = self.linear.value = None  # None ⇒ indeterminate
+        self.hero_value.value, self.hero_value.color = "עוצר…", Color.TEXT_SECONDARY
         self._safe_update()
 
     # ------------------------------------------------------------- feed pop-out
