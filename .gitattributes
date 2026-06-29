@@ -1,0 +1,10 @@
+# Normalize all text files to LF — in the repo AND in the working tree.
+# The repo already stores LF; eol=lf stops Git on Windows from rewriting
+# checked-out files to CRLF (the "LF will be replaced by CRLF" warning),
+# so line endings stay consistent regardless of each machine's core.autocrlf.
+* text=auto eol=lf
+
+# Binary assets: never touch line endings.
+*.png binary
+*.ico binary
+*.ttf binary
