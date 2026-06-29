@@ -80,13 +80,19 @@ class Controller:
         self._upd_icon = ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=Color.TEXT_SECONDARY, size=18)
         self._upd_ring = ft.ProgressRing(width=16, height=16, stroke_width=2, color=Color.BRAND, visible=False)
         self._upd_text = ft.Text("", color=Color.TEXT_SECONDARY, size=Type.BODY[0], expand=True)
-        self._upd_button = ft.TextButton("בדוק עכשיו", on_click=lambda _: self._on_check_now())
+        # The label is a nested Text we mutate, NOT TextButton.text: in Flet 0.84
+        # setting TextButton.text after construction doesn't propagate on .update()
+        # (Text.value does), so a "בדוק עכשיו" button would stay stale when the
+        # state flips to "available". Color it BRAND to match the default style.
+        self._upd_btn_label = ft.Text("בדוק עכשיו", color=Color.BRAND)
+        self._upd_button = ft.TextButton(content=self._upd_btn_label, on_click=lambda _: self._on_check_now())
         installed = ft.Text(f"גרסה מותקנת: {__version__}", color=Color.TEXT_SECONDARY, size=Type.CAPTION[0])
         status_row = ft.Row(
             spacing=Space.SM, vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[self._upd_icon, self._upd_ring, self._upd_text, self._upd_button],
         )
-        self._update_controls = (self._upd_icon, self._upd_ring, self._upd_text, self._upd_button)
+        self._update_controls = (self._upd_icon, self._upd_ring, self._upd_text,
+                                  self._upd_button, self._upd_btn_label)
         self._render_update_section()
         return ft.Column(spacing=Space.XS, controls=[installed, status_row])
 
@@ -108,14 +114,14 @@ class Controller:
             self._upd_icon.color = Color.BRAND
             self._upd_text.value = f"גרסה חדשה זמינה ({st.get('version', '')})"
             self._upd_text.color = Color.TEXT_PRIMARY
-            btn.text, btn.visible = "עדכן עכשיו", True
+            self._upd_btn_label.value, btn.visible = "עדכן עכשיו", True
             btn.on_click = lambda _: self.apply_update()
         elif state == "current":
             self._upd_icon.name = ft.Icons.CHECK_CIRCLE_ROUNDED
             self._upd_icon.color = Color.SUCCESS
             self._upd_text.value = "מותקנת הגרסה האחרונה"
             self._upd_text.color = Color.TEXT_SECONDARY
-            btn.text, btn.visible = "בדוק עכשיו", True
+            self._upd_btn_label.value, btn.visible = "בדוק עכשיו", True
             btn.on_click = lambda _: self._on_check_now()
         elif state == "checking":
             self._upd_icon.name = ft.Icons.HOURGLASS_EMPTY_ROUNDED
@@ -137,7 +143,7 @@ class Controller:
             else:
                 self._upd_text.value = "לא ניתן לבדוק עדכונים. אם המחשב מסונן — הפעל 'שיקוף SSH' בהגדרות מתקדמות."
             self._upd_text.color = Color.TEXT_SECONDARY
-            btn.text, btn.visible = "בדוק עכשיו", True
+            self._upd_btn_label.value, btn.visible = "בדוק עכשיו", True
             btn.on_click = lambda _: self._on_check_now()
 
         try:
