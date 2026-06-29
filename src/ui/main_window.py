@@ -53,7 +53,15 @@ _PANEL_SHADOW = ft.BoxShadow(
     color=ft.Colors.with_opacity(0.24, "#000000"), offset=ft.Offset(0, 16),
 )
 
+# Run-mode width of the console panel (it sits on the RTL-leading side and the
+# browser panel fills the rest). The _OVL_RIGHT overlay inset is derived from
+# this value — keep them in sync.
 _PANEL_WIDTH = 440
+# Idle width: a wider, centred rectangle when no run is in flight. Only the
+# console panel is on screen then, so it can breathe; _apply_run_layout snaps it
+# back to _PANEL_WIDTH the moment a run starts (where the browser panel needs the
+# room and the overlay inset assumes 440).
+_PANEL_WIDTH_IDLE = 680
 
 # Insets (in Flet LOGICAL px) of the live-browser rectangle (browser_body) inside
 # the maximized window, used to place the owned-overlay Chrome (issue #19). These
@@ -772,7 +780,7 @@ class MainView:
             # left margin (Space.LG) so the outer frame is even on both screen edges,
             # and stays centered idle. The _OVL_RIGHT overlay inset is derived from
             # this margin — keep them in sync.
-            width=_PANEL_WIDTH,
+            width=_PANEL_WIDTH_IDLE,  # starts idle; _apply_run_layout snaps to _PANEL_WIDTH on run
             margin=ft.margin.only(top=Space.XS, bottom=Space.XXL, left=Space.LG, right=Space.LG),
             bgcolor=_GLASS_PANEL, border=ft.border.all(1, ft.Colors.with_opacity(0.55, "#ffffff")),
             border_radius=24, shadow=_PANEL_SHADOW, padding=Space.XL,
@@ -989,6 +997,9 @@ class MainView:
         console returns to the centre and the overlay is torn down."""
         row = getattr(self, "_console_row", None)
         if running:
+            # Narrow strip so the browser panel (and its 440-based overlay inset)
+            # gets the room.
+            self._console_panel.width = _PANEL_WIDTH
             # A new run started while a handoff browser was still embedded: fold it
             # away. The controller already closed the handoff driver (see
             # on_run_click → close_handoff), so here we only stop tracking the old
@@ -1014,6 +1025,8 @@ class MainView:
             # panel (and the overlay) up; _close_handoff_browser folds it later.
             if self._browser_handoff:
                 return
+            # Back to the wide centred rectangle (browser panel gone).
+            self._console_panel.width = _PANEL_WIDTH_IDLE
             self._stop_browser_overlay()
             self._browser_panel.visible = False
             self.reset_browser()
@@ -1048,10 +1061,11 @@ class MainView:
         # The live-browser panel (issue #19) is built once and joins the row only
         # while a run is in flight (see _apply_run_layout).
         self._browser_panel = self._build_browser_panel()
+        self._console_panel = self._build_console_panel()
         console = ft.Row(
             expand=True, alignment=ft.MainAxisAlignment.CENTER,
             vertical_alignment=ft.CrossAxisAlignment.STRETCH,
-            controls=[self._build_console_panel()],
+            controls=[self._console_panel],
         )
         # Kept so the settings dialog can hide the main panel while open — that
         # way the translucent dialog sits directly over the background.
