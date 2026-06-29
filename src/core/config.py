@@ -75,12 +75,6 @@ class Config:
                 self.SSH_MIRROR_ENABLED = self.parser.getboolean('Developer', 'SSH_MIRROR', fallback=False)
             self.SSH_REMOTE = self.parser.get('Developer', 'SSH_REMOTE', fallback='')
             self.SSH_KEY_PATH = self.parser.get('Developer', 'SSH_KEY_PATH', fallback='')
-            # Persisted dev-mode flag, read straight from the file every time —
-            # independent of the per-session DEV_MODE reset above. The auto-updater
-            # gates on THIS: DEV_MODE is always False at launch (so it can't gate a
-            # launch-time check), but a machine the operator designated dev/gov has
-            # ENABLED=true saved, and should update itself on startup.
-            self.DEV_MODE_PERSISTED = self.parser.getboolean('Developer', 'ENABLED', fallback=False)
 
         except KeyError as e:
             raise KeyError(f"Missing configuration key: {e}")

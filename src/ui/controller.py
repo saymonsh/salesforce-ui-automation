@@ -57,13 +57,14 @@ class Controller:
 
     def _fetch_update_info(self) -> dict:
         """Return the channel-appropriate status dict (state available/current/
-        error). Channel = SSH/VPS mirror when the SSH mirror is *configured*
-        (SSH_REMOTE + SSH_KEY_PATH in config.ini), else GitHub. We key off the
-        config fields, not the session DEV_MODE flag: DEV_MODE resets to False
-        on every launch (config.py), so it would always pick GitHub at startup —
-        but the gov machine that needs the VPS channel is exactly the one with
-        the SSH mirror persisted."""
-        if parm.SSH_REMOTE and parm.SSH_KEY_PATH:
+        error). Channel = SSH/VPS mirror only when dev mode is on *for this
+        session* AND the mirror is configured (SSH_REMOTE + SSH_KEY_PATH in
+        config.ini), else GitHub. We gate on the live session DEV_MODE so nothing
+        touches SSH until the operator flips the dev-mode switch in the UI this
+        session: DEV_MODE resets to False on every launch (config.py), so the
+        launch-time auto-check always takes the GitHub path — the SSH channel is
+        reached only via a manual 'בדוק עכשיו' after dev mode is turned on."""
+        if parm.DEV_MODE and parm.SSH_REMOTE and parm.SSH_KEY_PATH:
             from src.core.update_checker import check_for_update_ssh
             return check_for_update_ssh(parm.SSH_REMOTE, parm.SSH_KEY_PATH)
         from src.core.update_checker import check_for_update
