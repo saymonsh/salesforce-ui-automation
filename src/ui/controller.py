@@ -39,7 +39,7 @@ class Controller:
         # no installer to update to, so it just reports "source". Visible to every
         # install — the settings panel distinguishes up-to-date from "couldn't
         # check" (and then hints at SSH).
-        self.update_status = {"state": "checking"} if is_frozen() else {"state": "source"}
+        self._update_info = {"state": "checking"} if is_frozen() else {"state": "source"}
         self._update_controls = None  # the settings update-section refs, while open
         if is_frozen():
             self._start_update_check()
@@ -47,10 +47,10 @@ class Controller:
     def _start_update_check(self):
         """Check for a newer build on a daemon thread (a slow/blocked network
         must never delay startup) and refresh the settings panel if it's open.
-        The result is stashed on ``self.update_status`` so opening settings later
+        The result is stashed on ``self._update_info`` so opening settings later
         renders it without re-checking."""
         def _run():
-            self.update_status = self._fetch_update_info()
+            self._update_info = self._fetch_update_info()
             if self.page:
                 self.page.run_task(self._safe_render_update_section)
         threading.Thread(target=_run, daemon=True).start()
@@ -90,14 +90,14 @@ class Controller:
         return ft.Column(spacing=Space.XS, controls=[installed, status_row])
 
     def _render_update_section(self):
-        """Paint the update controls from ``self.update_status``. Best-effort —
+        """Paint the update controls from ``self._update_info``. Best-effort —
         mutating an unmounted control (settings closed) just raises and is
         swallowed; the next open rebuilds from the same stashed status."""
         if not self._update_controls:
             return
         import flet as ft
         from src.ui.theme import Color
-        st = self.update_status or {"state": "error", "reason": "network"}
+        st = self._update_info or {"state": "error", "reason": "network"}
         state = st.get("state")
         btn = self._upd_button
         self._upd_ring.visible = state == "checking"
@@ -150,11 +150,11 @@ class Controller:
 
     def _on_check_now(self):
         """Manual re-check from the settings panel."""
-        self.update_status = {"state": "checking"}
+        self._update_info = {"state": "checking"}
         self._render_update_section()
 
         def _run():
-            self.update_status = self._fetch_update_info()
+            self._update_info = self._fetch_update_info()
             if self.page:
                 self.page.run_task(self._safe_render_update_section)
         threading.Thread(target=_run, daemon=True).start()
@@ -165,7 +165,7 @@ class Controller:
 
         Closing settings and showing the modal happen in the same UI tick, so a
         dialog is always on screen — no flash of bare background (the old bug)."""
-        info = self.update_status
+        info = self._update_info
         if not info or info.get("state") != "available":
             return
         # GitHub release without a .exe asset — nothing to silent-install; point
