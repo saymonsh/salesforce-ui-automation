@@ -490,11 +490,23 @@ class AttendanceProcessor(BaseProcessor):
         logger.reset_context()
         logger.info(f"upsert complete: {created} created, {updated} updated, {unchanged} unchanged", stage="run")
 
+        # Sessions that exist in Salesforce but have no matching grid column. Upsert
+        # never touches them (it only walks grid dates) — surfaced here as a warning
+        # so an SF-only session isn't left silently unnoticed. Read-only: reported,
+        # never written.
+        dates_only_sf = sorted(set(sessions_by_date) - set(grid_dates))
+        if dates_only_sf:
+            logger.warning(f"{len(dates_only_sf)} SF sessions have no grid date (not touched): "
+                           f"{', '.join(dates_only_sf)}", stage="run")
+
         summary = {"success_text": Status.t3_upsert_summary(created, updated, unchanged)}
         sections = []
         if duplicate_dates:
             sections.append({"title": Status.cmp_duplicate_dates_title(len(duplicate_dates)),
                              "ids": [_display_date(d) for d in duplicate_dates]})
+        if dates_only_sf:
+            sections.append({"title": Status.cmp_dates_only_sf_title(len(dates_only_sf)),
+                             "ids": [_display_date(d) for d in dates_only_sf]})
         if sf_only_ids:
             sections.append({"title": Status.cmp_sf_only_title(len(sf_only_ids)),
                              "ids": [str(x) for x in sf_only_ids]})
