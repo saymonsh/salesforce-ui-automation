@@ -17,6 +17,27 @@ def _redact_pii(text: str) -> str:
     return _PII_ID_RE.sub(lambda m: "*" * (len(m.group()) - 3) + m.group()[-3:], text)
 
 
+# Bound the flow screen walk (ponytail: guards against an unexpected flow that
+# never reaches — or never leaves — the ServiceDeliveryTable screen).
+_MAX_FLOW_SCREENS = 6
+
+
+def _delivery_records_from_response(response):
+    """Return the ServiceDeliveryTable's deliveryRecords from a flow screen
+    response, or None when the current screen has no such component.
+
+    None means "this is an intro/text screen shown before the table — advance to
+    the next screen"; [] means the table component is present but empty. The
+    large-course flow gates the table behind a 'להמשך לחץ הבא' DISPLAY_TEXT screen,
+    so startFlow lands on a screen with no ServiceDeliveryTable (→ None here)."""
+    for field in (response.get('fields') or []):
+        if field.get('name') == 'ServiceDeliveryTable':
+            for inp in (field.get('inputs') or []):
+                if inp.get('name') == 'deliveryRecords':
+                    return inp.get('value') or []
+    return None
+
+
 class SalesforceApiClient:
     def __init__(self, driver):
         self.driver = driver
@@ -348,17 +369,63 @@ class SalesforceApiClient:
         except Exception as e:
             raise Exception(f"Failed to extract Session ID from createRecord response. Error: {e}, Data: {data}")
 
+    def _parse_flow_response(self, data):
+        """Unwrap a startFlow/navigateFlow Aura response to its `response` dict,
+        raising on any Salesforce- or flow-level error."""
+        action = data.get('actions', [{}])[0]
+        if action.get('state') == 'ERROR':
+            raise Exception(f"Salesforce ERROR: {action.get('error')}")
+        return_value = action.get('returnValue')
+        if return_value is None:
+            raise Exception(f"returnValue is None! Action data: {action}")
+        response = return_value.get('response') or {}
+        if response.get('error'):
+            raise Exception(f"Flow error: {response.get('error')}")
+        return response
+
+    def _navigate_flow(self, serialized_state, fields):
+        """POST navigateFlow(NEXT) with the given screen `fields`, returning the
+        parsed `response` of the next screen. `fields` is [] to advance past an
+        intro/confirmation screen, or the ServiceDeliveryTable payload to commit the
+        table — mirroring the manual HAR (intro NEXT sends fields=[]; the table NEXT
+        echoes deliveryRecords)."""
+        payload = {
+            "actions": [{
+                "id": "6;a",
+                "descriptor": "aura://FlowRuntimeConnectController/ACTION$navigateFlow",
+                "callingDescriptor": "UNKNOWN",
+                "params": {
+                    "request": {
+                        "action": "NEXT",
+                        "serializedState": serialized_state,
+                        "fields": fields,
+                        "uiElementVisited": True,
+                        "enableTrace": False,
+                        "lcErrors": {},
+                        "isBuilderDebug": False
+                    }
+                }
+            }]
+        }
+        data = self._execute_aura_request('/aura?r=6&aura.FlowRuntimeConnect.navigateFlow=1', payload)
+        return self._parse_flow_response(data)
+
     def start_create_sd_flow(self, session_id):
-        """Start the 'Pa_Create_Service_Delivery' screen flow for the given session.
+        """Start the 'Pa_Create_Service_Delivery' screen flow and walk to its
+        ServiceDeliveryTable screen, returning (serialized_state, delivery_records).
 
         In the Salesforce UI the per-participant Service Delivery records are NOT
         auto-created when a Pa_Service_Session__c is inserted. They are created by
-        this Quick Action flow, which commits them already at startFlow and renders
-        them in its 'ServiceDeliveryTable' screen component. We read the created
-        records back out of that screen component's inputs.
+        this Quick Action flow and rendered in its 'ServiceDeliveryTable' screen
+        component; we read the created rows out of that component's inputs.
 
-        Returns (serialized_state, delivery_records) where serialized_state must be
-        echoed back to finish_create_sd_flow to finalize the interview.
+        The flow is NOT always single-screen: for large courses it gates the table
+        behind one or more DISPLAY_TEXT screens ('להמשך לחץ הבא'), so startFlow lands
+        on an intro screen with no table (0 records). We advance past any such
+        screens (navigateFlow NEXT, empty fields) until the table appears — a small
+        course reaches it on screen 1, a large course after the intro. The returned
+        `serialized_state` is the TABLE screen's state (it changes per screen), which
+        finish_create_sd_flow must echo back to commit the interview.
         """
         payload = {
             "actions": [{
@@ -382,92 +449,58 @@ class SalesforceApiClient:
         data = self._execute_aura_request('/aura?r=5&aura.FlowRuntimeConnect.startFlow=1', payload)
 
         try:
-            action = data.get('actions', [{}])[0]
-            if action.get('state') == 'ERROR':
-                raise Exception(f"Salesforce ERROR: {action.get('error')}")
-
-            return_value = action.get('returnValue')
-            if return_value is None:
-                raise Exception(f"returnValue is None! Action data: {action}")
-
-            response = return_value.get('response') or {}
-            if response.get('error'):
-                raise Exception(f"Flow error: {response.get('error')}")
-
-            serialized_state = response.get('serializedEncodedState')
-            if not serialized_state:
-                raise Exception(f"startFlow returned no serializedEncodedState. Response keys: {list(response.keys())}")
-
-            delivery_records = []
-            for field in response.get('fields', []):
-                if field.get('name') == 'ServiceDeliveryTable':
-                    for inp in field.get('inputs', []):
-                        if inp.get('name') == 'deliveryRecords':
-                            delivery_records = inp.get('value') or []
+            response = self._parse_flow_response(data)
+            for _ in range(_MAX_FLOW_SCREENS):
+                records = _delivery_records_from_response(response)
+                state = response.get('serializedEncodedState')
+                if records is not None:
+                    if not state:
+                        raise Exception("ServiceDeliveryTable screen has no serializedEncodedState")
+                    logger.debug(f"startFlow → ServiceDeliveryTable reached with {len(records)} record(s)", stage="aura")
+                    return state, records
+                # Intro/text screen before the table — advance past it.
+                if response.get('interviewStatus') != 'STARTED':
+                    raise Exception(f"flow ended before ServiceDeliveryTable (interviewStatus={response.get('interviewStatus')})")
+                if not state:
+                    raise Exception("intro screen has no serializedEncodedState")
+                logger.debug("startFlow → intro screen, advancing (NEXT)", stage="aura")
+                response = self._navigate_flow(state, [])
+            raise Exception(f"ServiceDeliveryTable not reached within {_MAX_FLOW_SCREENS} screens")
         except Exception as e:
             raise Exception(f"Error parsing startFlow response: {e}")
 
-        logger.debug(f"startFlow → {len(delivery_records)} service delivery record(s)", stage="aura")
-        return serialized_state, delivery_records
-
     def finish_create_sd_flow(self, serialized_state, delivery_records):
-        """Advance the 'Pa_Create_Service_Delivery' flow to FINISHED.
+        """Advance the 'Pa_Create_Service_Delivery' flow from the ServiceDeliveryTable
+        screen to FINISHED.
 
         Mirrors the manual UI's navigateFlow(NEXT): the delivery records are echoed
         back verbatim (attendance statuses are persisted separately via
         report_attendance/updateServiceDelivery, not through the flow). Finishing the
         flow runs its post-processing side-effects (e.g. activating the related
-        Program Engagement).
+        Program Engagement). Any trailing confirmation screens after the table are
+        advanced past (empty NEXT) until the interview reports FINISHED.
         """
-        payload = {
-            "actions": [{
-                "id": "6;a",
-                "descriptor": "aura://FlowRuntimeConnectController/ACTION$navigateFlow",
-                "callingDescriptor": "UNKNOWN",
-                "params": {
-                    "request": {
-                        "action": "NEXT",
-                        "serializedState": serialized_state,
-                        "fields": [
-                            {
-                                "field": "ServiceDeliveryTable.deliveryRecords",
-                                "value": delivery_records,
-                                "isVisible": True
-                            },
-                            {
-                                "field": "ServiceDeliveryTable.relevantObjectApiName",
-                                "value": "",
-                                "isVisible": True
-                            }
-                        ],
-                        "uiElementVisited": True,
-                        "enableTrace": False,
-                        "lcErrors": {},
-                        "isBuilderDebug": False
-                    }
-                }
-            }]
-        }
-
-        data = self._execute_aura_request('/aura?r=6&aura.FlowRuntimeConnect.navigateFlow=1', payload)
-
+        fields = [
+            {"field": "ServiceDeliveryTable.deliveryRecords", "value": delivery_records, "isVisible": True},
+            {"field": "ServiceDeliveryTable.relevantObjectApiName", "value": "", "isVisible": True},
+        ]
         try:
-            action = data.get('actions', [{}])[0]
-            if action.get('state') == 'ERROR':
-                raise Exception(f"Salesforce ERROR: {action.get('error')}")
-
-            return_value = action.get('returnValue')
-            if return_value is None:
-                raise Exception(f"returnValue is None! Action data: {action}")
-
-            response = return_value.get('response') or {}
-            status = response.get('interviewStatus')
-            if status != 'FINISHED':
-                raise Exception(f"Flow did not finish cleanly. interviewStatus={status}, error={response.get('error')}")
+            response = self._navigate_flow(serialized_state, fields)
+            for _ in range(_MAX_FLOW_SCREENS):
+                status = response.get('interviewStatus')
+                if status == 'FINISHED':
+                    logger.debug("navigateFlow → interview FINISHED", stage="aura")
+                    return
+                if status != 'STARTED':
+                    raise Exception(f"Flow did not finish cleanly. interviewStatus={status}, error={response.get('error')}")
+                # Trailing confirmation screen after the table — advance past it.
+                state = response.get('serializedEncodedState')
+                if not state:
+                    raise Exception(f"trailing screen has no serializedEncodedState (interviewStatus={status})")
+                response = self._navigate_flow(state, [])
+            raise Exception(f"flow still not FINISHED within {_MAX_FLOW_SCREENS} screens")
         except Exception as e:
             raise Exception(f"Error parsing navigateFlow response: {e}")
-
-        logger.debug("navigateFlow → interview FINISHED", stage="aura")
 
     def report_attendance(self, records_to_update):
         if not records_to_update:
@@ -505,3 +538,34 @@ class SalesforceApiClient:
                 raise Exception(f"Bulk attendance update failed: {state}. Details: {error_str}")
         except Exception as e:
             raise Exception(f"Failed to read state from updateServiceDelivery response. Error: {e}, Data: {data}")
+
+
+# --------------------------------------------------------------- self-check
+# Runnable (no driver/network):  python -m src.automation.api_client
+# Guards the flow-screen branch that broke on the large course: telling an intro
+# screen (advance) apart from the ServiceDeliveryTable screen (records reached).
+if __name__ == "__main__":
+    # Large-course intro screen ('להמשך לחץ הבא') — no table ⇒ None ⇒ advance.
+    intro = {"interviewStatus": "STARTED", "serializedEncodedState": "s1",
+             "fields": [{"name": "text", "fieldType": "DISPLAY_TEXT", "label": "להמשך לחץ הבא"}]}
+    assert _delivery_records_from_response(intro) is None, "intro screen must yield None (advance)"
+
+    # Table screen (after the intro) — deliveryRecords present.
+    table = {"interviewStatus": "STARTED", "serializedEncodedState": "s2",
+             "fields": [
+                 {"name": "No_Reason_Text", "fieldType": "DISPLAY_TEXT"},
+                 {"name": "ServiceDeliveryTable", "inputs": [
+                     {"name": "deliveryRecords", "value": [{"Id": "a1F1"}, {"Id": "a1F2"}]}]},
+             ]}
+    assert _delivery_records_from_response(table) == [{"Id": "a1F1"}, {"Id": "a1F2"}], "table records"
+
+    # Table present but empty ⇒ [] (NOT None): a real table with zero rows must not
+    # be mistaken for an intro screen and skipped.
+    empty = {"fields": [{"name": "ServiceDeliveryTable", "inputs": [
+        {"name": "deliveryRecords", "value": None}]}]}
+    assert _delivery_records_from_response(empty) == [], "present-but-empty table ⇒ []"
+
+    assert _delivery_records_from_response({"fields": []}) is None
+    assert _delivery_records_from_response({}) is None
+
+    print("OK — api_client flow screen detection (intro vs ServiceDeliveryTable)")
