@@ -111,7 +111,15 @@ class BaseProcessor(ABC):
             username = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_USERNAME_INPUT, check_stop_func=lambda: self.is_stopped)
             username.send_keys(parm.USER_NAME)
 
+            # Salesforce moved this org to identity-first login (Login Discovery):
+            # the username page has no password field — you submit the username
+            # first and the password field only appears on the next page.
             self.check_for_stop()
+            submit = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_SUBMIT_BUTTON, check_stop_func=lambda: self.is_stopped)
+            submit.click()
+
+            self.check_for_stop()
+            logger.debug("username submitted — waiting for password page", stage="login")
             password = interruptible_find_element(self.driver, By.XPATH, S.LOGIN_PASSWORD_INPUT, check_stop_func=lambda: self.is_stopped)
             password.send_keys(parm.PASSWORD)
 
